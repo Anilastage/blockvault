@@ -1,0 +1,383 @@
+================================================================================
+                    BLOCKVAULT - COMPLETE TUTORIAL
+        Blockchain-Based Document Verification & Management System
+================================================================================
+
+This file answers, question-by-question, what BlockVault is, what it does,
+how it is built, how it works, and finally how to run it on your machine.
+
+--------------------------------------------------------------------------------
+Q1. WHAT EXACTLY IS THIS WEBSITE?
+--------------------------------------------------------------------------------
+BlockVault is a full-stack web application that lets you:
+
+  1. Upload documents,
+  2. Permanently record each document's unique digital fingerprint
+     (a SHA-256 cryptographic hash) on a blockchain,
+  3. And later PROVE that a document is authentic and unmodified -
+     WITHOUT trusting any central server.
+
+The word "BlockVault" = Blockchain + Vault. Your documents stay in a vault
+(server storage) but the proof of their authenticity lives on an immutable
+blockchain - a public, tamper-proof ledger that no one (not even the admin)
+can silently alter.
+
+It is made of three parts that talk to each other:
+
+  . blockchain/  - A Solidity smart contract (DocumentVerification.sol) that
+                   permanently stores hashes. Runs on a local Hardhat
+                   blockchain during development (or the Sepolia testnet).
+  . backend/     - A Node.js REST API (Express + MongoDB) that handles users,
+                   files, verification lookups, analytics and admin tasks,
+                   and talks to the smart contract for on-chain data.
+  . frontend/    - A React (Vite + Tailwind) web app that the browser opens
+                   at http://localhost:5173 and that talks to the backend.
+
+--------------------------------------------------------------------------------
+Q2. WHAT DOES IT DO (FEATURE BY FEATURE)?
+--------------------------------------------------------------------------------
+A. USER AUTHENTICATION
+   - Register with name, email and password (password is hashed with bcrypt).
+   - Login / Logout, JWT-based sessions, profile page, account settings.
+   - Change password, update profile, deactivate your account.
+
+B. UPLOAD & STORE DOCUMENTS
+   - Upload any file. The server computes its SHA-256 hash from the raw bytes
+     (so the hash can never be faked by changing the file name or metadata).
+   - The hash is registered on the blockchain with your connected wallet
+     (e.g. MetaMask) and permanently stored in the smart contract.
+   - The server INDEPENDENTLY verifies the submitted blockchain transaction,
+     so the whole flow cannot be faked (see Q4).
+   - List, view details, download and delete your documents. Only the owner
+     (or an admin) can do these actions. Deleting the file does NOT delete
+     the blockchain record - on-chain proof is permanent.
+
+C. VERIFICATION
+   - Public page (/verify) - anyone, even without an account, can:
+       * upload a file, or paste a SHA-256 hash.
+   - The system compares it with the blockchain and returns one of three
+     results:
+       VERIFIED   -> the exact same hash exists on the blockchain.
+       MODIFIED   -> a DIFFERENT hash was registered before (the file has
+                     been changed since it was registered).
+       NOT_FOUND  -> this file was never registered at all.
+   - Logged-in users get a full verification history with filters, search,
+     date range and pagination.
+
+D. BLOCKCHAIN EXPLORER
+   - Look up any hash, see chain status (connected network, contract address),
+     and browse all registration transactions (from a real RPC node or the
+     local Hardhat chain).
+
+E. DASHBOARD & ANALYTICS
+   - Stats cards, charts, activity feed, verification trends, per-document
+     analytics and CSV export of your data.
+
+F. ADMINISTRATION (see Q6)
+   - Manage users (change role / enable-disable), see every document, all
+     blockchain transactions, system analytics and full activity logs.
+
+--------------------------------------------------------------------------------
+Q3. HOW MANY FUNCTIONS DOES IT HAVE?
+--------------------------------------------------------------------------------
+Try to count it yourself - there are roughly:
+
+  FRONTEND PAGES (routes) - 22 routes, grouped as:
+
+    Public (no login needed):
+      1.  /               Landing page
+      2.  /verify         Verify a document (public)
+      3.  /login          Login
+      4.  /register       Register
+
+    Logged-in users (ProtectedRoute):
+      5.  /dashboard                  Dashboard
+      6.  /documents                  My Documents list
+      7.  /documents/:id              Document details
+      8.  /upload                     Upload + register on blockchain
+      9.  /verification-history       Verification history
+      10. /analytics                  My analytics
+      11. /blockchain                 Blockchain Explorer
+      12. /profile                    Profile
+      13. /settings                   Settings
+
+    Admin only (AdminRoute):
+      14. /admin                      Admin Dashboard
+      15. /admin/users                User management
+      16. /admin/documents            All documents
+      17. /admin/transactions         Blockchain transactions
+      18. /admin/activity             Activity logs
+
+    Plus 404 page and a redirect route for /explorer.
+
+  BACKEND API ENDPOINTS - 39 REST routes, grouped by module:
+
+    Auth (4):        register, login, me, logout
+    Documents (5):   upload+register, list, get one, download, delete
+    Verification (4): verify by file, verify by hash, my history, per-document
+    Blockchain (5):  config, status, list transactions, tx detail, hash lookup
+    Dashboard (3):   stats, activity, analytics
+    Analytics (5):   overview, documents, verifications, blockchain, CSV export
+    Users (5):       get profile, update profile, change password, delete
+                     account, settings (get + patch)
+    Admin (8):       list users, change user role, enable/disable user,
+                     list all documents, list transactions, system analytics,
+                     activity logs
+
+  SMART CONTRACT (on the blockchain):
+    registerDocument() - store a document hash forever (only data stored is:
+                         hash, owner wallet, timestamp, block number).
+    getDocument()      - read the full record of a hash.
+    verifyDocument()   - quick gas-cheap "does this hash exist?" check.
+    totalDocuments()   - count of all registered documents.
+    (It also inherits OpenZeppelin's Ownable - a single contract owner.)
+
+--------------------------------------------------------------------------------
+Q4. WHAT IS THE WORKFLOW? (HOW DOES IT ACTUALLY WORK?)
+--------------------------------------------------------------------------------
+The upload/registration flow:
+
+  1. You log in and open the Upload page.
+  2. You pick a file. The frontend connects your crypto wallet (MetaMask).
+  3. The wallet signs a "registerDocument(hash)" transaction on the smart
+     contract and it is mined into the blockchain. Only the hash, your
+     wallet address, timestamp and block number go on-chain - NEITHER the
+     file itself, nor its content.
+  4. The backend also re-hashes the exact uploaded bytes and checks that:
+        (a) the hash you claim truly matches the uploaded file, and
+        (b) the transaction you signed REALLY exists on the contract and
+            registered THIS hash (anti-fraud - you cannot fake a tx hash).
+  5. Only after both checks pass does BlockVault save the document in
+     MongoDB with metadata: original name, size, MIME type, hash, tx hash,
+     block number, contract address and chain id.
+
+The verification flow:
+
+  1. Anyone (logged-in or not) goes to /verify.
+  2. They upload a file or paste a hash.
+  3. The server computes/reads the SHA-256 hash and asks the smart contract
+     "does this hash exist on the blockchain?"
+  4. Result: VERIFIED / MODIFIED / NOT_FOUND (explained in Q2.C).
+  5. If a logged-in user verifies, the attempt is saved to their history and
+     the linked document's status is updated.
+
+Data flow summary:
+
+   Browser (React)  ->  Backend (Express)  ->  MongoDB (metadata/users/history)
+                         |         \
+                         |          ->  Blockchain RPC -> Smart Contract
+                         v               (hash + owner + timestamp)
+                      SHA-256 hashing of real file bytes
+
+--------------------------------------------------------------------------------
+Q5. WHO CAN ACCESS IT?
+--------------------------------------------------------------------------------
+There are three levels of access:
+
+  1. GUEST / PUBLIC  - anyone who opens the site. Can view the landing page
+     and use the public verify page. Cannot upload, manage documents or see
+     other people's data.
+
+  2. REGISTERED USER - after creating an account. Can upload, own, download,
+     and delete their own documents, run verifications, see their own
+     analytics and history, and edit their profile/settings. A user sees
+     ONLY their own documents and activity.
+
+  3. ADMINISTRATOR  - full oversight. Can see every user, every document,
+     all blockchain transactions, system analytics and activity logs, change
+     user roles, and enable/disable accounts. Even an admin CANNOT modify or
+     delete a hash that is already on the blockchain - that is the whole
+     point of immutability.
+
+  NOTE ON SECURITY: downloads and document details are protected server-side.
+  Even if you guess someone else's document id, the backend refuses access
+  unless you are the owner or an admin.
+
+--------------------------------------------------------------------------------
+Q6. IS THERE AN ADMIN? HOW DO I BECOME ONE?
+--------------------------------------------------------------------------------
+Yes. There are two ways:
+
+  1. AUTO-PROMOTION: The VERY FIRST account registered in the whole system
+     is automatically given the ADMIN role (see backend
+     controllers/authController.ts - "the first user to register is the
+     admin"). So on a fresh install: register your first account and you are
+     the administrator.
+
+  2. PROMOTION BY AN EXISTING ADMIN: an admin can go to
+     Admin -> Users (or the /api/admin/users/:id/role endpoint) and change
+     any user's role between USER and ADMIN.
+
+Admins can also:
+  - Enable / disable any account (disabled users cannot log in).
+  - View all documents, transactions, system analytics and activity logs.
+
+--------------------------------------------------------------------------------
+Q7. WHAT DID WE USED TO MAKE IT? (FULL TECH STACK)
+--------------------------------------------------------------------------------
+  BLOCKCHAIN LAYER
+    - Solidity ^0.8.20  (DocumentVerification.sol)
+    - Hardhat 2.x       (compile, test, deploy, local node)
+    - OpenZeppelin      (Ownable contract)
+    - ethers.js v6      (read/write to chain)
+    - Local Hardhat chain id 31337 during dev; Sepolia testnet (id 11155111)
+      for a public deployment.
+
+  BACKEND
+    - Node.js + TypeScript
+    - Express 4          (REST API)
+    - Mongoose 8         (MongoDB models: User, Document, Verification,
+                          UserSettings, ActivityLog)
+    - MongoDB            (local in-memory server via mongodb-memory-server,
+                          or a MongoDB Atlas cluster)
+    - JWT (jsonwebtoken) for auth, bcryptjs for password hashing
+    - multer (uploads), helmet, cors, express-rate-limit, zod (validation)
+    - tsx for dev, Mocha + Chai + Supertest for tests
+
+  FRONTEND
+    - React 18 + TypeScript
+    - Vite 5 (build tool & dev server on port 5173)
+    - Tailwind CSS 3     (styling)
+    - React Router 6     (all the pages/routes)
+    - TanStack Query     (server-state / caching)
+    - React Hook Form + Zod (forms + validation)
+    - axios             (HTTP calls to the backend)
+    - ethers.js         (wallet connection / blockchain interaction)
+    - recharts          (analytics charts)
+    - lucide-react      (icons)
+    - AuthContext / WalletContext / ToastContext (React context providers)
+
+  INFRASTRUCTURE
+    - Dotenv for environment variables (.env files)
+    - concurrently to run backend + frontend together
+
+--------------------------------------------------------------------------------
+Q8. WHY DID WE MAKE IT? WHAT PROBLEM DOES IT SOLVE?
+--------------------------------------------------------------------------------
+  The problem: Documents are easy to forge or silently edit. If a certificate,
+  contract or ID is stored only in a normal database, whoever controls that
+  database (or hacks it) can change the file and nobody can prove it happened.
+  Traditional verification needs a trusted middleman (notary, university,
+  government) and every check costs time and money.
+
+  The solution: BlockVault stores only a one-way cryptographic fingerprint
+  (SHA-256 hash) of the document on a blockchain. A blockchain is:
+
+    - Immutable: records can never be edited or deleted once written.
+    - Decentralized: no single person/organisation controls it.
+    - Transparent: anyone can verify a hash without permission.
+    - Verifiable: comparing the hash of a current file to the on-chain hash
+      instantly tells you if it is the authentic original or was tampered
+      with - you do not need to trust BlockVault, the code, or the admin
+      to do this; the blockchain itself is the source of truth.
+
+  So BlockVault replaces "trust a person/database" with "trust mathematics
+  + a public ledger".
+
+--------------------------------------------------------------------------------
+Q9. HOW CAN IT BE USEFUL? (REAL-WORLD USE CASES)
+--------------------------------------------------------------------------------
+  - Educational: universities issue degree certificates; anyone can verify
+    a candidate's degree without emailing the registrar.
+  - Legal/HR: employment contracts, NDAs, offer letters - prove a version
+    existed at a point in time.
+  - Government/IDs: birth certificates, property deeds, licences, permits.
+  - Business: invoice/payment tamper-proofing, audit trails, compliance.
+  - Supply chain: quality certificates, authenticity of goods.
+  - Personal: storing evidence (receipts, photos, copyright proof) with a
+    timestamp that cannot be disputed.
+
+  Anywhere people currently pay for or wait for notarisation/attestation,
+  BlockVault-style verification gives a cheaper, faster, always-available
+  alternative.
+
+--------------------------------------------------------------------------------
+Q10. HOW TO RUN IT - STEP BY STEP
+--------------------------------------------------------------------------------
+Prerequisites: Node.js 18+, npm, and (for wallet registration) the MetaMask
+browser extension.
+
+PLACEHOLDER NOTE: open three/four terminals below.
+
+STEP 0 - INSTALL EVERYTHING (first time only)
+        npm run install:all
+
+STEP 1 - SET UP ENVIRONMENT
+        Copy values into the .env file (already done for you on this machine):
+          .env            -> PORT=5000, MONGODB_URI, JWT_SECRET, CLIENT_URL,
+                             BLOCKCHAIN_RPC_URL, CONTRACT_ADDRESS, CHAIN_ID
+          backend/.env    -> same as above (the backend reads this one)
+          frontend/.env   -> VITE_API_URL=http://localhost:5000/api
+        All required settings are already filled in in this project.
+
+STEP 2 - START THE DATABASE
+        Option A (local, simplest):  npm run db
+          -> starts an in-memory MongoDB on 127.0.0.1:27017 storing data in
+             backend/.data/mongodb.
+        Option B (cloud/MongoDB Atlas): just make sure MONGODB_URI in .env
+          points to your Atlas connection string. Then skip this step.
+        (On this machine MONGODB_URI points at an Atlas cluster, so the
+         backend connects automatically.)
+
+STEP 3 - START THE BLOCKCHAIN (Smart Contract)
+        Terminal A:
+          npm run chain                -> starts Hardhat node on 127.0.0.1:8545
+        Terminal B (while chain is running):
+          npm run deploy:local         -> deploys the contract and writes
+                                          blockchain/deployment.json
+        (Already done on this machine: the contract is deployed at
+         0x5FbDB2315678afecb367f032d93F642f64180aa3 on chain 31337.)
+        Optional:  npm run compile  -> compile Solidity
+                   npm test          -> run backend + blockchain tests
+
+STEP 4 - START THE BACKEND + FRONTEND
+        Terminal C:
+          npm run dev:backend          -> BlockVault API on http://localhost:5000
+        Terminal D:
+          npm run dev:frontend         -> website on http://localhost:5173
+        OR simply run BOTH together:
+          npm run dev                  -> starts backend + frontend (concurrently)
+        Verify the API is up: open http://localhost:5000/health
+
+STEP 5 - USE THE WEBSITE
+        Open http://localhost:5173 in your browser.
+        Click Register and create your first account -> this FIRST account
+        automatically becomes the ADMIN.
+        To upload/register documents on-chain you also need MetaMask:
+          - Install the MetaMask extension.
+          - Add a custom network: RPC URL http://127.0.0.1:8545, Chain ID 31337.
+          - Import one of the Hardhat test wallets (private keys are printed
+            when you run "npm run chain", e.g. 0xac0974bec39a17e36ba4a6b4d23
+            8ff2bac77dc02e64fd5c7a4ae74182... for account 0).
+        Now upload a document -> approve the transaction in MetaMask -> the
+        hash goes on-chain. Then verify it on the public /verify page, and
+        also try verifying a MODIFIED copy to see the "MODIFIED" result.
+
+STEP 6 - (OPTIONAL) DEPLOY TO THE SEPOLIA TESTNET
+        Fill in .env: SEPOLIA_RPC_URL, DEPLOYER_PRIVATE_KEY (with test Ether),
+        ETHERSCAN_API_KEY. Then:
+          npm run deploy:sepolia
+        Update CONTRACT_ADDRESS + BLOCKCHAIN_RPC_URL + CHAIN_ID in .env,
+        restart the backend, and the whole app now uses the public testnet.
+
+USEFUL npm SCRIPTS at a glance:
+        npm run install:all     install every package in all 3 folders
+        npm run dev             backend + frontend together
+        npm run dev:backend     backend only
+        npm run dev:frontend    frontend only
+        npm run db              local MongoDB
+        npm run chain           Hardhat blockchain node
+        npm run compile         compile the smart contract
+        npm run deploy:local    deploy contract to local chain
+        npm run deploy:sepolia  deploy contract to Sepolia
+        npm run test            backend + blockchain tests
+
+================================================================================
+  BLOCKVAULT - BUILD FOR THIS MACHINE BASICS
+================================================================================
+  Frontend:  http://localhost:5173      (React/Vite dev server)
+  Backend:   http://localhost:5000      (Check http://localhost:5000/health)
+  Chain:     http://127.0.0.1:8545      (Hardhat, Chain ID 31337)
+  Contract:  0x5FbDB2315678afecb367f032d93F642f64180aa3 (already deployed)
+  Database:  MongoDB Atlas (MONGODB_URI in .env) - already connected
+================================================================================

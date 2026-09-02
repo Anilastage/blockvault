@@ -1,0 +1,32 @@
+# BlockVault — production overrides.
+#
+# Layers on top of docker-compose.yml for production:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# What this changes:
+#   - Points the backend at a MANAGED MongoDB (Atlas / dedicated mongod with
+#     auth + backups) via the required MONGODB_URI. The bundled `mongo` service
+#     from the base file is not used when you set MONGODB_URI.
+#   - Exposes only the frontend's public port (443:80). TLS terminates at your
+#     load balancer / ingress; the backend stays private, reachable only
+#     through nginx's same-origin reverse proxy. For nginx-side TLS (certbot
+#     sidecar), see frontend/nginx.https.conf.
+#
+# Secrets (JWT_SECRET, SMTP_PASS, MONGODB_URI, CONTRACT_ADDRESS, ...) are read
+# from the shell environment or a git-ignored .env passed with --env-file. They
+# are never committed.
+services:
+  backend:
+    environment:
+      # Managed Mongo in production. Point MONGODB_URI at Atlas / a dedicated
+      # mongod with a least-privilege app user. The bundled `mongo` container
+      # then starts but is unused; to stop it starting at all, run compose with
+      # `--profile manual-mongo` and add that profile to the mongo service in
+      # the base docker-compose.yml (or split mongo out of the stack).
+      MONGODB_URI: ${MONGODB_URI:?MONGODB_URI is required (managed Mongo with auth)}
+
+  frontend:
+    # Expose the public origin port. TLS is terminated at your load balancer /
+    # ingress, so only 443 needs to reach the internet.
+    ports:
+      - "443:80"
