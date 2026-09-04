@@ -68,6 +68,29 @@ export const notifyDocumentVerified = async (input: {
   });
 };
 
+/**
+ * Notify a document owner that an admin deleted their document. No-op (returns
+ * null) when the owner deletes their own document.
+ */
+export const notifyDocumentDeleted = async (input: {
+  ownerId: string;
+  deleterId: string;
+  documentId: string;
+  documentName: string;
+  adminName: string;
+  hash: string;
+}): Promise<INotification | null> => {
+  if (String(input.ownerId) === String(input.deleterId)) return null;
+  return createNotification({
+    userId: input.ownerId,
+    type: 'DOCUMENT_DELETED',
+    title: 'Your document was deleted',
+    message: `Admin ${input.adminName} deleted "${input.documentName}". The local copy and metadata were removed; the blockchain record remains.`,
+    entityId: input.documentId,
+    metadata: { adminName: input.adminName, hash: input.hash },
+  });
+};
+
 /** Upgrade the connection to a Server-Sent Events stream for the user. */
 export const subscribeStream = (userId: string, res: Response): void => {
   res.writeHead(200, {

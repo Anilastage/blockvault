@@ -236,7 +236,8 @@ export type NotificationType =
   | 'ACCESS_REQUESTED'
   | 'ACCESS_APPROVED'
   | 'ACCESS_DENIED'
-  | 'DOCUMENT_DOWNLOADED';
+  | 'DOCUMENT_DOWNLOADED'
+  | 'DOCUMENT_DELETED';
 
 export interface AppNotification {
   _id: string;

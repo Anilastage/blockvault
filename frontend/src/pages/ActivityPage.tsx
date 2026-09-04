@@ -138,13 +138,24 @@ export const ActivityPage = () => {
                         </td>
                         <td className="table-td text-slate-500">{log.entityType ?? '—'}</td>
                         <td className="table-td max-w-[240px] truncate text-slate-500">
-                          {typeof log.metadata?.name === 'string'
-                            ? log.metadata.name
-                            : typeof log.metadata?.email === 'string'
-                              ? log.metadata.email
-                              : typeof log.metadata?.hash === 'string'
-                                ? `${log.metadata.hash.slice(0, 16)}…`
-                                : '—'}
+                          {log.action === 'DOCUMENT_DELETE' &&
+                          typeof log.metadata?.name === 'string' &&
+                          typeof log.metadata?.ownerName === 'string' ? (
+                            <span>
+                              <span className="font-medium text-dark">{log.metadata.name}</span>
+                              <span className="block text-xs text-slate-400">
+                                owner: {log.metadata.ownerName}
+                              </span>
+                            </span>
+                          ) : typeof log.metadata?.name === 'string' ? (
+                            log.metadata.name
+                          ) : typeof log.metadata?.email === 'string' ? (
+                            log.metadata.email
+                          ) : typeof log.metadata?.hash === 'string' ? (
+                            `${log.metadata.hash.slice(0, 16)}…`
+                          ) : (
+                            '—'
+                          )}
                         </td>
                         <td className="table-td font-mono text-xs text-slate-400">{log.ipAddress ?? '—'}</td>
                         <td className="table-td whitespace-nowrap text-slate-500">{formatDateTime(log.createdAt)}</td>

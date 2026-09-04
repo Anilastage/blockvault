@@ -11,6 +11,7 @@ import { sha256File } from '../utils/hash';
 import { env } from '../config/env';
 import { validateRegistrationTx } from '../services/blockchainService';
 import { logActivity, clientMeta } from '../services/activityService';
+import { notifyDocumentDeleted } from '../services/notificationService';
 import { storageProvider } from '../services/storageService';
 import {
   getOrCreateDownloadCode,
@@ -274,13 +275,22 @@ export const regenerateDownloadCodeHandler = asyncHandler(
 );
 
 export const deleteDocument = asyncHandler(async (req: Request, res: Response) => {
-  const document = await DocumentModel.findById(req.params.id);
+  const document = await DocumentModel.findById(req.params.id).populate('userId', 'fullName email');
   if (!document) throw ApiError.notFound('Document not found');
 
-  const isOwner = String(document.userId) === String(req.user!.id);
-  if (!isOwner && req.user!.role !== 'ADMIN') {
+  const isOwner = String(document.userId._id ?? document.userId) === String(req.user!.id);
+  const isAdmin = req.user!.role === 'ADMIN';
+  if (!isOwner && !isAdmin) {
     throw ApiError.forbidden('You do not have access to this document');
   }
+
+  const ownerRef = document.userId as unknown as {
+    _id: string;
+    fullName?: string;
+    email?: string;
+  };
+  const ownerId = String(ownerRef._id ?? ownerRef);
+  const ownerName = ownerRef.fullName ?? 'the owner';
 
   await storageProvider.delete(document.storagePath);
   await Promise.all([
@@ -295,9 +305,27 @@ export const deleteDocument = asyncHandler(async (req: Request, res: Response) =
     action: 'DOCUMENT_DELETE',
     entityType: 'DOCUMENT',
     entityId: String(document._id),
-    metadata: { name: document.originalName, hash: document.sha256Hash },
+    metadata: {
+      name: document.originalName,
+      hash: document.sha256Hash,
+      ownerId,
+      ownerName,
+      deletedBy: isAdmin && !isOwner ? 'ADMIN' : 'OWNER',
+      adminName: isAdmin ? req.user!.fullName : undefined,
+    },
     ...clientMeta(req.ip, req.headers['user-agent']),
   });
+
+  if (isAdmin && !isOwner) {
+    await notifyDocumentDeleted({
+      ownerId,
+      deleterId: String(req.user!.id),
+      documentId: String(document._id),
+      documentName: document.originalName,
+      adminName: req.user!.fullName ?? 'An admin',
+      hash: document.sha256Hash,
+    });
+  }
 
   res.json({
     success: true,

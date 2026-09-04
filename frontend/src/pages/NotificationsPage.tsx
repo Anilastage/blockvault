@@ -7,6 +7,7 @@ import {
   BellOff,
   MailOpen,
   FileCheck2,
+  Trash2,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -33,6 +34,8 @@ const typeIcon = (type: NotificationType) => {
       return { icon: XCircle, cls: 'bg-danger-100 text-danger' };
     case 'DOCUMENT_DOWNLOADED':
       return { icon: FileCheck2, cls: 'bg-warning-100 text-warning-600' };
+    case 'DOCUMENT_DELETED':
+      return { icon: Trash2, cls: 'bg-danger-100 text-danger' };
     default:
       return { icon: MailOpen, cls: 'bg-slate-100 text-slate-500' };
   }
