@@ -233,11 +233,9 @@ export const listActivityLogs = asyncHandler(async (req: Request, res: Response)
   const filter: Record<string, unknown> = {};
   if (action && action !== 'ALL') filter.action = action;
 
-  // Non-admins see only their own activity; admins see everyone's.
-  if (req.user!.role !== 'ADMIN') {
-    filter.userId = req.user!.id;
-  }
-
+  // Shared global ledger — every user (admin or not) sees the full
+  // chronological activity history across the whole project, mirroring the
+  // transparent, append-only nature of the blockchain.
   const [logs, total] = await Promise.all([
     ActivityLog.find(filter)
       .sort({ createdAt: -1 })

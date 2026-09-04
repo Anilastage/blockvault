@@ -278,7 +278,7 @@ export const ProfilePage = () => {
               onClick={wallet.connect}
             >
               {" "}
-              Connect Demo Wallet{" "}
+              Connect Wallet{" "}
             </Button>
           ) : (
             <>

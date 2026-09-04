@@ -17,6 +17,8 @@ import {
   X,
   Bell,
   KeyRound,
+  Share2,
+  Download,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
@@ -29,6 +31,8 @@ const userNav = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/documents', label: 'Documents', icon: FileText },
   { to: '/upload', label: 'Upload Document', icon: Upload },
+  { to: '/share', label: 'Share Document', icon: Share2 },
+  { to: '/download', label: 'Download by Code', icon: Download },
   { to: '/verify', label: 'Verify Document', icon: ShieldCheck },
   { to: '/verification-history', label: 'Verification History', icon: History },
   { to: '/blockchain', label: 'Blockchain Explorer', icon: Boxes },

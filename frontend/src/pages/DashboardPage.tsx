@@ -72,13 +72,20 @@ export const DashboardPage = () => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
-          title="Total Documents"
+          title="Total Documents (Network)"
           value={stats.data?.totalDocuments ?? 0}
           loading={stats.isLoading}
           icon={<FileText className="h-5 w-5" />}
           accentClass="bg-primary-500"
+        />
+        <StatCard
+          title="Your Documents"
+          value={stats.data?.yourDocuments ?? 0}
+          loading={stats.isLoading}
+          icon={<FileStack className="h-5 w-5" />}
+          accentClass="bg-secondary-500"
         />
         <StatCard
           title="Verified Documents"
@@ -99,7 +106,7 @@ export const DashboardPage = () => {
           value={stats.data?.verificationAttempts ?? 0}
           loading={stats.isLoading}
           icon={<History className="h-5 w-5" />}
-          accentClass="bg-secondary-500"
+          accentClass="bg-accent-600"
         />
       </div>
 
@@ -233,15 +240,26 @@ export const DashboardPage = () => {
       {/* Activity log strip */}
       {!activity.isLoading && activity.data && activity.data.recentActivity.length > 0 && (
         <Card className="p-5">
-          <h3 className="mb-3 font-semibold text-dark">Account Activity</h3>
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="font-semibold text-dark">Network Activity</h3>
+            <Link
+              to="/activity"
+              className="flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-500"
+            >
+              View all <ArrowUpRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
           <div className="space-y-2.5">
             {activity.data.recentActivity.slice(0, 5).map((a) => (
               <div key={a._id} className="flex items-center gap-3 text-sm">
                 <span className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-[11px] font-semibold text-slate-500">
                   {a.action.replace(/_/g, ' ')}
                 </span>
-                <span className="truncate text-slate-500">
+                <span className="max-w-[180px] truncate text-slate-500">
                   {typeof a.metadata?.name === 'string' ? String(a.metadata.name) : ''}
+                </span>
+                <span className="max-w-[160px] truncate text-xs text-slate-400">
+                  {a.userId && typeof a.userId === 'object' && 'email' in a.userId ? a.userId.email : 'System'}
                 </span>
                 <span className="ml-auto shrink-0 text-xs text-slate-400">
                   {formatDateTime(a.createdAt)}

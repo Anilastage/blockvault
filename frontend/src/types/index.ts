@@ -118,6 +118,7 @@ export interface ActivityLogItem {
 
 export interface DashboardStats {
   totalDocuments: number;
+  yourDocuments: number;
   verifiedDocuments: number;
   pendingTransactions: number;
   verificationAttempts: number;

@@ -24,6 +24,7 @@ blockchain/deployment.json
 
 # Backend runtime data
 backend/.data/
+.data/
 backend/uploads/*
 !backend/uploads/.gitkeep
 

@@ -305,8 +305,8 @@ const GeneralSection = () => {
           </p>{" "}
           <p className="mt-0.5 text-xs text-slate-500">
             {wallet.isDemoWallet
-              ? "Built-in demo wallet — no browser extension needed"
-              : "Demo wallet unavailable (no local RPC configured)"}
+              ? "Built-in demo wallet connected"
+              : "Connect your browser wallet (e.g. MetaMask) to sign transactions"}
           </p>{" "}
         </div>{" "}
         {!wallet.isConnected ? (

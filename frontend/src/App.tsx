@@ -18,6 +18,7 @@ import { DocumentDetailPage } from '@/pages/DocumentDetailPage';
 import { UploadPage } from '@/pages/UploadPage';
 import { VerifyPage } from '@/pages/VerifyPage';
 import { DownloadByCodePage } from '@/pages/DownloadByCodePage';
+import { ShareDocumentPage } from '@/pages/ShareDocumentPage';
 import { ExplorerPage } from '@/pages/ExplorerPage';
 import { VerificationHistoryPage } from '@/pages/VerificationHistoryPage';
 import { AnalyticsPage } from '@/pages/AnalyticsPage';
@@ -104,6 +105,9 @@ export default function App() {
                     </Route>
                     <Route path="/download" element={<DashboardLayout title="Download Document" />}>
                       <Route index element={<DownloadByCodePage />} />
+                    </Route>
+                    <Route path="/share" element={<DashboardLayout title="Share Document" />}>
+                      <Route index element={<ShareDocumentPage />} />
                     </Route>
                     <Route path="/verify" element={<DashboardLayout title="Verify Document" />}>
                       <Route index element={<VerifyPage />} />

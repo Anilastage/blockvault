@@ -69,7 +69,7 @@ export const dashboardService = {
     return unwrap<{
       recentUploads: DocumentItem[];
       recentVerifications: Array<{ _id: string; result: string; verifiedAt: string; calculatedHash?: string; documentId?: { originalName?: string } | null }>;
-      recentActivity: Array<{ _id: string; action: string; createdAt: string; metadata?: Record<string, unknown> }>;
+      recentActivity: Array<{ _id: string; action: string; createdAt: string; metadata?: Record<string, unknown>; userId?: { fullName?: string; email?: string; role?: string } | null }>;
     }>(res.data);
   },
 

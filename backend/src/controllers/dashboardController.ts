@@ -9,11 +9,19 @@ const daysAgo = (n: number): Date => new Date(Date.now() - n * 24 * 60 * 60 * 10
 export const getStats = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user!.id;
 
-  const [totalDocuments, verifiedDocs, pendingTxs, verificationAttempts] = await Promise.all([
+  // Global (network-wide) stats plus the signed-in user's own documents.
+  const [
+    totalDocuments,
+    yourDocuments,
+    verifiedDocs,
+    pendingTxs,
+    verificationAttempts,
+  ] = await Promise.all([
+    DocumentModel.countDocuments({}),
     DocumentModel.countDocuments({ userId }),
-    DocumentModel.countDocuments({ userId, verificationStatus: 'VERIFIED' }),
-    DocumentModel.countDocuments({ userId, blockchainStatus: 'PENDING' }),
-    Verification.countDocuments({ userId }),
+    DocumentModel.countDocuments({ verificationStatus: 'VERIFIED' }),
+    DocumentModel.countDocuments({ blockchainStatus: 'PENDING' }),
+    Verification.countDocuments({}),
   ]);
 
   res.json({
@@ -21,6 +29,7 @@ export const getStats = asyncHandler(async (req: Request, res: Response) => {
     message: 'Dashboard statistics',
     data: {
       totalDocuments,
+      yourDocuments,
       verifiedDocuments: verifiedDocs,
       pendingTransactions: pendingTxs,
       verificationAttempts,
@@ -34,7 +43,12 @@ export const getActivity = asyncHandler(async (req: Request, res: Response) => {
   const [recentUploads, recentVerifications, recentActivity] = await Promise.all([
     DocumentModel.find({ userId }).sort({ uploadedAt: -1 }).limit(5),
     Verification.find({ userId }).sort({ verifiedAt: -1 }).limit(5).populate('documentId', 'originalName'),
-    ActivityLog.find({ userId }).sort({ createdAt: -1 }).limit(8),
+    // Global shared activity ledger — every user sees all project activity,
+    // regardless of when their account was created.
+    ActivityLog.find({})
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .populate('userId', 'fullName email role'),
   ]);
 
   res.json({

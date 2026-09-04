@@ -48,6 +48,7 @@ export const env = {
     dir: 'uploads',
   },
   email: {
+    smtpEnabled: process.env.SMTP_ENABLED !== 'false',
     smtpHost: process.env.SMTP_HOST ?? '',
     smtpPort: parseInt(process.env.SMTP_PORT ?? '587', 10),
     smtpUser: process.env.SMTP_USER ?? '',

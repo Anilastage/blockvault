@@ -4,6 +4,7 @@ import { env } from '../config/env';
 let transporter: Transporter | null = null;
 
 const isConfigured = (): boolean =>
+  env.email.smtpEnabled &&
   !!(env.email.smtpHost && env.email.smtpUser && env.email.smtpPass && env.email.fromAddress);
 
 const getTransporter = (): Transporter | null => {

@@ -8,19 +8,34 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { JsonRpcProvider, Wallet, type Signer } from 'ethers';
+import {
+  BrowserProvider,
+  JsonRpcProvider,
+  Wallet,
+  type Eip1193Provider,
+  type Signer,
+} from 'ethers';
 import { blockchainService } from '@/services/blockchainService';
 import { useToast } from './ToastContext';
 
 /**
- * Private key for the built-in demo wallet. Defaults to Hardhat's well-known
- * account #0 key so the local node (npm run chain) can fund and mine its
- * transactions. Override via VITE_DEMO_WALLET_KEY in frontend/.env to use a
- * different dev account. Never put a real account key here.
+ * Private key for the built-in demo wallet. This is ONLY used as a last-resort
+ * fallback when no browser wallet (MetaMask) is installed. It defaults to
+ * Hardhat's well-known account #0 key so the local node (npm run chain) can
+ * fund and mine its transactions. Override via VITE_DEMO_WALLET_KEY in
+ * frontend/.env. Never put a real account key here.
  */
 const DEMO_WALLET_KEY =
   import.meta.env.VITE_DEMO_WALLET_KEY ??
   '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+
+declare global {
+  interface Window {
+    ethereum?: Eip1193Provider & {
+      request: (req: { method: string; params?: unknown[] }) => Promise<unknown>;
+    };
+  }
+}
 
 interface WalletContextValue {
   account: string | null;
@@ -41,8 +56,8 @@ interface WalletContextValue {
 
 const WalletContext = createContext<WalletContextValue | null>(null);
 
-/** Remembers the user's demo-wallet choice across page refreshes. */
-const PREF_KEY = 'blockvault_demo_wallet_connected';
+/** Remembers the wallet choice across page refreshes. */
+const PREF_KEY = 'blockvault_wallet_connected';
 
 export const WalletProvider = ({ children }: { children: ReactNode }) => {
   const toast = useToast();
@@ -53,6 +68,7 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
   const [explorerUrl, setExplorerUrl] = useState('');
   const [rpcUrl, setRpcUrl] = useState('');
   const [connecting, setConnecting] = useState(false);
+  const [isDemoWallet, setIsDemoWallet] = useState(false);
   const signerRef = useRef<Signer | null>(null);
   const restoreAttempted = useRef(false);
 
@@ -69,15 +85,10 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
       .catch(() => undefined);
   }, []);
 
-  const connect = useCallback(async () => {
-    if (!rpcUrl) {
-      toast(
-        'The demo wallet needs a local RPC node. Start it with "npm run chain" and make sure backend/.env points BLOCKCHAIN_RPC_URL at it.',
-        'warning'
-      );
-      return;
-    }
-    setConnecting(true);
+  const hasMetaMask = useCallback(() => typeof window !== 'undefined' && !!window.ethereum, []);
+
+  const connectDemo = useCallback(async (): Promise<boolean> => {
+    if (!rpcUrl) return false;
     try {
       const provider = new JsonRpcProvider(rpcUrl);
       const wallet = new Wallet(DEMO_WALLET_KEY, provider);
@@ -85,18 +96,63 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
       signerRef.current = wallet;
       setAccount(address);
       setChainId(Number(network.chainId));
-      localStorage.setItem(PREF_KEY, '1');
-      toast(`Demo wallet connected: ${address.slice(0, 6)}...${address.slice(-4)}`, 'success');
+      setIsDemoWallet(true);
+      return true;
     } catch {
-      toast('Could not connect the demo wallet. Is the blockchain node running?', 'error');
+      return false;
+    }
+  }, [rpcUrl]);
+
+  const connectMetaMask = useCallback(async (): Promise<boolean> => {
+    if (!hasMetaMask()) return false;
+    try {
+      const provider = new BrowserProvider(window.ethereum as Eip1193Provider);
+      await provider.send('eth_requestAccounts', []);
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+      const network = await provider.getNetwork();
+      signerRef.current = signer;
+      setAccount(address);
+      setChainId(Number(network.chainId));
+      setIsDemoWallet(false);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [hasMetaMask]);
+
+  const connect = useCallback(async () => {
+    setConnecting(true);
+    try {
+      if (hasMetaMask()) {
+        const ok = await connectMetaMask();
+        if (ok) {
+          localStorage.setItem(PREF_KEY, '1');
+          toast('Wallet connected via MetaMask.', 'success');
+          return;
+        }
+      }
+      // Fallback: demo wallet (funded local node or VITE_DEMO_WALLET_KEY).
+      const ok = await connectDemo();
+      if (ok) {
+        localStorage.setItem(PREF_KEY, '1');
+        toast('Demo wallet connected.', 'success');
+        return;
+      }
+      toast(
+        'No MetaMask connected and the demo wallet needs a reachable RPC node. Connect MetaMask in your browser, or start the configured chain.',
+        'warning'
+      );
+    } catch {
+      toast('Could not connect the wallet.', 'error');
     } finally {
       setConnecting(false);
     }
-  }, [rpcUrl, toast]);
+  }, [hasMetaMask, connectMetaMask, connectDemo, toast]);
 
-  // Silently restore the demo wallet on reload if the user had connected before.
-  // Attempt only once: if the node is down the connect fails and we must NOT retry
-  // in a tight loop (would otherwise toast-spam and hammer the RPC).
+  // Silently restore the wallet on reload if the user had connected before.
+  // Attempt only once: if the node is down the connect fails and we must NOT
+  // retry in a tight loop (would otherwise toast-spam and hammer the RPC).
   useEffect(() => {
     if (restoreAttempted.current) return;
     if (rpcUrl && !account && !connecting && localStorage.getItem(PREF_KEY) === '1') {
@@ -109,16 +165,34 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
     setAccount(null);
     setChainId(null);
     signerRef.current = null;
+    setIsDemoWallet(false);
     localStorage.removeItem(PREF_KEY);
     toast('Wallet disconnected.', 'info');
   }, [toast]);
 
   const switchToExpectedNetwork = useCallback(async () => {
     if (!chainId || !expectedChainId || chainId === expectedChainId) return;
-    // The demo wallet connects via JsonRpcProvider to the configured RPC.
-    // There is no provider-level network switch here, but we reconnect the
-    // signer against the backend's configured network so the app operates on
-    // the expected chain.
+    if (hasMetaMask() && window.ethereum) {
+      try {
+        await window.ethereum.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: '0x' + expectedChainId.toString(16) }],
+        });
+        const provider = new BrowserProvider(window.ethereum as Eip1193Provider);
+        const signer = await provider.getSigner();
+        const network = await provider.getNetwork();
+        signerRef.current = signer;
+        setAccount(await signer.getAddress());
+        setChainId(Number(network.chainId));
+        setIsDemoWallet(false);
+        toast('Wallet switched to the expected network.', 'success');
+        return;
+      } catch {
+        toast('Could not switch network in MetaMask.', 'error');
+        return;
+      }
+    }
+    // Fallback: reconnect the demo wallet against the configured RPC.
     try {
       const provider = new JsonRpcProvider(rpcUrl);
       const wallet = new Wallet(DEMO_WALLET_KEY, provider);
@@ -126,11 +200,12 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
       signerRef.current = wallet;
       setAccount(await wallet.getAddress());
       setChainId(Number(network.chainId));
+      setIsDemoWallet(true);
       toast('Wallet reconnected to the expected network.', 'success');
     } catch {
       toast('Could not reconnect the wallet. Is the blockchain node running?', 'error');
     }
-  }, [chainId, expectedChainId, rpcUrl, toast]);
+  }, [chainId, expectedChainId, rpcUrl, hasMetaMask, toast]);
 
   const getSigner = useCallback(async () => {
     if (!signerRef.current) throw new Error('Wallet is not connected.');
@@ -149,7 +224,7 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
         chainId !== null && expectedChainId !== null ? chainId === expectedChainId : true,
       isConnected: !!account,
       connecting,
-      isDemoWallet: !!rpcUrl,
+      isDemoWallet,
       connect,
       disconnect,
       switchToExpectedNetwork,
@@ -163,6 +238,7 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
       explorerUrl,
       rpcUrl,
       connecting,
+      isDemoWallet,
       connect,
       disconnect,
       switchToExpectedNetwork,
