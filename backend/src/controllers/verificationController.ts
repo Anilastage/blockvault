@@ -335,7 +335,7 @@ export const downloadRegisteredDocument = asyncHandler(async (req: Request, res:
     action: 'DOCUMENT_DOWNLOAD',
     entityType: 'DOCUMENT',
     entityId: String(document._id),
-    metadata: { name: document.originalName, hash: document.sha256Hash, viaHash: true, granted: true },
+    metadata: { name: document.originalName, hash: document.sha256Hash },
     ...clientMeta(req.ip, req.headers['user-agent']),
   });
 

@@ -15,6 +15,7 @@ const ACTIONS = [
   'LOGOUT',
   'DOCUMENT_UPLOAD',
   'DOCUMENT_DELETE',
+  'DOCUMENT_DOWNLOAD',
   'BLOCKCHAIN_REGISTER',
   'DOCUMENT_VERIFY',
   'PROFILE_UPDATE',
@@ -28,6 +29,7 @@ const actionTone: Record<string, string> = {
   REGISTER: 'bg-success-100 text-success-600 dark:bg-success-500/10 dark:text-success',
   DOCUMENT_UPLOAD: 'bg-accent-100 text-accent-600 dark:bg-accent-500/10 dark:text-accent',
   DOCUMENT_DELETE: 'bg-danger-100 text-danger dark:bg-danger-500/10 dark:text-danger',
+  DOCUMENT_DOWNLOAD: 'bg-slate-200 text-slate-700 dark:bg-slate-500/10 dark:text-slate-300',
   BLOCKCHAIN_REGISTER: 'bg-purple-100 text-purple-700 dark:bg-purple-500/10 dark:text-purple-300',
   DOCUMENT_VERIFY: 'bg-secondary-100 text-purple-600 dark:bg-secondary-500/10 dark:text-secondary',
   PROFILE_UPDATE: 'bg-orange-100 text-orange-600 dark:bg-orange-500/10 dark:text-orange-400',
@@ -145,6 +147,24 @@ export const ActivityPage = () => {
                               <span className="font-medium text-dark">{log.metadata.name}</span>
                               <span className="block text-xs text-slate-400">
                                 owner: {log.metadata.ownerName}
+                              </span>
+                            </span>
+                          ) : log.action === 'DOCUMENT_DOWNLOAD' &&
+                            log.metadata?.viaShareCode &&
+                            typeof log.metadata?.name === 'string' ? (
+                            <span>
+                              <span className="font-medium text-dark">{log.metadata.name}</span>
+                              <span className="block text-xs text-warning-500">
+                                via 8-digit share code
+                              </span>
+                            </span>
+                          ) : log.action === 'DOCUMENT_DOWNLOAD' &&
+                            log.metadata?.granted &&
+                            typeof log.metadata?.name === 'string' ? (
+                            <span>
+                              <span className="font-medium text-dark">{log.metadata.name}</span>
+                              <span className="block text-xs text-success-500">
+                                via approved access request
                               </span>
                             </span>
                           ) : typeof log.metadata?.name === 'string' ? (
