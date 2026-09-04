@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: blockvault-api
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CLIENT_URL
+        sync: false
+      - key: BLOCKCHAIN_RPC_URL
+        value: https://ethereum-sepolia-rpc.publicnode.com
+      - key: CHAIN_ID
+        value: "11155111"
+      - key: CONTRACT_ADDRESS
+        value: 0xe68C76d721952aECF9F19A5461adF0BD2b0801D4
+      - key: BLOCKCHAIN_EXPLORER_URL
+        value: https://sepolia.etherscan.io
+      - key: SMTP_ENABLED
+        value: "false"
+    healthCheckPath: /health
+    autoDeploy: true
