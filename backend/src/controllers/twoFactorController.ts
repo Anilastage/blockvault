@@ -190,7 +190,7 @@ export const startEmailOtpSetup = asyncHandler(async (req: Request, res: Respons
   const user = await User.findById(req.user!.id);
   if (!user) throw ApiError.notFound('User not found');
 
-  const remaining = await rateLimitRemaining(String(user._id), 'email');
+  const remaining = await rateLimitRemaining(String(user._id), 'mfa_setup', 'email');
   if (remaining > 0) {
     throw ApiError.tooManyRequests(
       `Please wait ${Math.ceil(remaining / 1000)}s before requesting another code.`
@@ -250,7 +250,7 @@ export const startSmsOtpSetup = asyncHandler(async (req: Request, res: Response)
   const user = await User.findById(req.user!.id);
   if (!user) throw ApiError.notFound('User not found');
 
-  const remaining = await rateLimitRemaining(String(user._id), 'sms');
+  const remaining = await rateLimitRemaining(String(user._id), 'mfa_setup', 'sms');
   if (remaining > 0) {
     throw ApiError.tooManyRequests(
       `Please wait ${Math.ceil(remaining / 1000)}s before requesting another code.`

@@ -35,13 +35,26 @@ You get free URLs like `https://blockvault-api.onrender.com` (backend) and
    | `CHAIN_ID` | `11155111` |
    | `CONTRACT_ADDRESS` | `0xe68C76d721952aECF9F19A5461adF0BD2b0801D4` |
    | `BLOCKCHAIN_EXPLORER_URL` | `https://sepolia.etherscan.io` |
-   | `SMTP_ENABLED` | `false` |
+   | `SMTP_ENABLED` | `true` |
+   | `SMTP_HOST` | `smtp.gmail.com` |
+   | `SMTP_PORT` | `587` |
+   | `SMTP_USER` | your Gmail address (e.g. `you@gmail.com`) |
+   | `SMTP_PASS` | a Google **App Password** for that Gmail |
+   | `EMAIL_FROM_ADDRESS` | your Gmail address (same as `SMTP_USER`) |
+   | `EMAIL_FROM_NAME` | `BlockVault` |
 
 6. Click **Create Web Service**. Wait ~3 min for the first build.
 7. **Important:** Render free web services are set to **spin down after 15 min idle**. Go to the service **Settings → Instance → Auto-Deploy / sleeping** and check you're on the free plan. (If you want it to never sleep, that costs ~$7/mo — not required for a demo.)
 
-> ⚠️ `SMTP_ENABLED=false` means email OTP won't send — login still works using the
-> `devCode` shown in the login response (same as your local setup).
+> ✅ **Email OTP (recommended).** The app sends real verification codes by email.
+> To create a Gmail App Password: Google Account → **Security → 2-Step Verification**
+> must be ON, then **App passwords** → "App" → other (custom name, e.g. `blockvault`) →
+> copy the 16-char password into `SMTP_PASS`. Then real emails go out and the
+> on-screen `devCode` disappears automatically.
+>
+> `SMTP_USER`, `SMTP_PASS` and `EMAIL_FROM_ADDRESS` are marked `sync: false` in
+> `render.yaml` — you must fill them in the Render dashboard manually (Environment
+> tab → Add Environment Variable). Only push them if you want them public.
 
 ## 2. Deploy the Frontend (Vercel)
 
@@ -63,8 +76,11 @@ You get free URLs like `https://blockvault-api.onrender.com` (backend) and
 ## 3. First-use checklist on the live site
 
 - Open the Vercel URL → **Register** the first account (becomes admin).
-- Login uses the `devCode` OTP (no email).
+- **Email verification is mandatory at signup** — enter the code emailed to you
+  (or the on-screen `devCode` if SMTP isn't configured yet) before you can log in.
 - In **Profile** → connect your MetaMask wallet (must be on Sepolia with a little ETH).
+- No MetaMask? A **"MetaMask not detected"** modal appears with install
+  instructions for desktop, iPhone and Android when you click *Connect Wallet*.
 - Upload a document — it signs a transaction on Sepolia via MetaMask and lands in the Atlas DB.
 
 ## 4. Updating after a code change

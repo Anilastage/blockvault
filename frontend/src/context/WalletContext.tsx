@@ -17,17 +17,25 @@ import {
 } from 'ethers';
 import { blockchainService } from '@/services/blockchainService';
 import { useToast } from './ToastContext';
+import { WalletSetupModal } from '@/components/wallet/WalletSetupModal';
 
 /**
  * Private key for the built-in demo wallet. This is ONLY used as a last-resort
- * fallback when no browser wallet (MetaMask) is installed. It defaults to
- * Hardhat's well-known account #0 key so the local node (npm run chain) can
- * fund and mine its transactions. Override via VITE_DEMO_WALLET_KEY in
- * frontend/.env. Never put a real account key here.
+ * fallback during local development when no browser wallet (MetaMask) is
+ * installed — it is deliberately disabled on the deployed site, where users
+ * must connect a real wallet. It defaults to Hardhat's well-known account #0
+ * key so the local node (npm run chain) can fund and mine its transactions.
+ * Override via VITE_DEMO_WALLET_KEY in frontend/.env. Never put a real key here.
  */
 const DEMO_WALLET_KEY =
   import.meta.env.VITE_DEMO_WALLET_KEY ??
   '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+
+/**
+ * The demo wallet is only available in the Vite dev server, or when explicitly
+ * enabled at build time via VITE_DEMO_WALLET_ENABLED=true.
+ */
+const demoWalletEnabled = import.meta.env.DEV || import.meta.env.VITE_DEMO_WALLET_ENABLED === 'true';
 
 declare global {
   interface Window {
@@ -69,6 +77,7 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
   const [rpcUrl, setRpcUrl] = useState('');
   const [connecting, setConnecting] = useState(false);
   const [isDemoWallet, setIsDemoWallet] = useState(false);
+  const [showSetupModal, setShowSetupModal] = useState(false);
   const signerRef = useRef<Signer | null>(null);
   const restoreAttempted = useRef(false);
 
@@ -131,18 +140,30 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
           toast('Wallet connected via MetaMask.', 'success');
           return;
         }
-      }
-      // Fallback: demo wallet (funded local node or VITE_DEMO_WALLET_KEY).
-      const ok = await connectDemo();
-      if (ok) {
-        localStorage.setItem(PREF_KEY, '1');
-        toast('Demo wallet connected.', 'success');
+        // MetaMask is installed but the connection didn't complete (the popup
+        // was dismissed or the user rejected it). Explain instead of guessing.
+        toast('MetaMask did not connect. Please approve the connection in the MetaMask popup.', 'warning');
         return;
       }
-      toast(
-        'No MetaMask connected and the demo wallet needs a reachable RPC node. Connect MetaMask in your browser, or start the configured chain.',
-        'warning'
-      );
+
+      // No browser wallet (MetaMask) detected. In development we still allow the
+      // built-in demo wallet; on the deployed site we guide the user to install
+      // a real wallet instead of silently falling back.
+      if (demoWalletEnabled) {
+        const ok = await connectDemo();
+        if (ok) {
+          localStorage.setItem(PREF_KEY, '1');
+          toast('Demo wallet connected.', 'success');
+          return;
+        }
+        toast(
+          'No MetaMask detected and the demo wallet needs a reachable RPC node. Connect MetaMask in your browser, or start the configured chain.',
+          'warning'
+        );
+        return;
+      }
+
+      setShowSetupModal(true);
     } catch {
       toast('Could not connect the wallet.', 'error');
     } finally {
@@ -192,19 +213,23 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
     }
-    // Fallback: reconnect the demo wallet against the configured RPC.
-    try {
-      const provider = new JsonRpcProvider(rpcUrl);
-      const wallet = new Wallet(DEMO_WALLET_KEY, provider);
-      const network = await provider.getNetwork();
-      signerRef.current = wallet;
-      setAccount(await wallet.getAddress());
-      setChainId(Number(network.chainId));
-      setIsDemoWallet(true);
-      toast('Wallet reconnected to the expected network.', 'success');
-    } catch {
-      toast('Could not reconnect the wallet. Is the blockchain node running?', 'error');
+    // Fallback: reconnect the demo wallet against the configured RPC (dev only).
+    if (demoWalletEnabled) {
+      try {
+        const provider = new JsonRpcProvider(rpcUrl);
+        const wallet = new Wallet(DEMO_WALLET_KEY, provider);
+        const network = await provider.getNetwork();
+        signerRef.current = wallet;
+        setAccount(await wallet.getAddress());
+        setChainId(Number(network.chainId));
+        setIsDemoWallet(true);
+        toast('Wallet reconnected to the expected network.', 'success');
+      } catch {
+        toast('Could not reconnect the wallet. Is the blockchain node running?', 'error');
+      }
+      return;
     }
+    toast('Switch to the correct network inside your wallet, then try again.', 'warning');
   }, [chainId, expectedChainId, rpcUrl, hasMetaMask, toast]);
 
   const getSigner = useCallback(async () => {
@@ -246,7 +271,19 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
     ]
   );
 
-  return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
+  return (
+    <WalletContext.Provider value={value}>
+      {children}
+      <WalletSetupModal
+        open={showSetupModal}
+        onClose={() => setShowSetupModal(false)}
+        onRetry={async () => {
+          setShowSetupModal(false);
+          await connect();
+        }}
+      />
+    </WalletContext.Provider>
+  );
 };
 
 export const useWallet = (): WalletContextValue => {

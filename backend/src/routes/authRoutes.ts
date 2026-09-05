@@ -1,5 +1,12 @@
 import { Router } from 'express';
-import { register, login, getMe, logout } from '../controllers/authController';
+import {
+  register,
+  login,
+  verifyEmail,
+  resendVerification,
+  getMe,
+  logout,
+} from '../controllers/authController';
 import {
   start2FASetup,
   verify2FASetup,
@@ -15,6 +22,8 @@ import { validate } from '../middleware/validate';
 import {
   registerSchema,
   loginSchema,
+  verifyEmailSchema,
+  resendVerificationSchema,
   totpCodeSchema,
   mfaDisableSchema,
   loginTwoFactorSchema,
@@ -28,6 +37,8 @@ const router = Router();
 
 router.post('/register', authLimiter, validate(registerSchema), register);
 router.post('/login', authLimiter, validate(loginSchema), login);
+router.post('/verify-email', authLimiter, validate(verifyEmailSchema), verifyEmail);
+router.post('/resend-verification', authLimiter, validate(resendVerificationSchema), resendVerification);
 router.post('/2fa/login', authLimiter, validate(loginTwoFactorSchema), verifyLoginTwoFactor);
 router.post('/2fa/setup', authLimiter, protect, start2FASetup);
 router.post('/2fa/verify', authLimiter, protect, validate(totpCodeSchema), verify2FASetup);

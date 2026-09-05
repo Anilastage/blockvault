@@ -22,6 +22,15 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
+export const verifyEmailSchema = z.object({
+  mfaToken: z.string().min(10, 'Invalid verification session'),
+  code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'),
+});
+
+export const resendVerificationSchema = z.object({
+  mfaToken: z.string().min(10, 'Invalid verification session'),
+});
+
 export const updateProfileSchema = z.object({
   fullName: z.string().trim().min(2).max(100).optional(),
   walletAddress: z

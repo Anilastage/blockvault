@@ -55,7 +55,8 @@ export const getApp = async (): Promise<Express> => {
   return app;
 };
 
-/** Register a fresh user through the real auth endpoint. */
+/** Register a fresh user through the real auth endpoint, then complete the
+ * mandatory email verification so the returned token is a valid session. */
 export const createUser = async (
   targetApp: Express,
   fullName: string,
@@ -66,9 +67,27 @@ export const createUser = async (
     .post('/api/auth/register')
     .send({ fullName, email, password, confirmPassword: password })
     .expect(201);
+
+  const { id, requiresEmailVerification, mfaToken, devCode } = res.body.data as {
+    id?: string;
+    user?: { id?: string };
+    requiresEmailVerification?: boolean;
+    mfaToken?: string;
+    devCode?: string;
+  };
+
+  if (!requiresEmailVerification || !mfaToken || !devCode) {
+    throw new Error('createUser: register did not return an email verification challenge');
+  }
+
+  const verified = await request(targetApp)
+    .post('/api/auth/verify-email')
+    .send({ mfaToken, code: devCode })
+    .expect(200);
+
   return {
-    token: res.body.data.token as string,
-    id: res.body.data.user.id as string,
+    token: verified.body.data.token as string,
+    id: (id ?? (res.body.data.user?.id as string)) as string,
     email,
     fullName,
   };

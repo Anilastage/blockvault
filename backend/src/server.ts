@@ -1,6 +1,7 @@
 import { createApp } from './app';
 import { env } from './config/env';
 import { connectDatabase } from './config/db';
+import { User } from './models/User';
 
 const summarizeEnv = (): void => {
   console.log(`[config] NODE_ENV=${env.nodeEnv}`);
@@ -28,6 +29,21 @@ const start = async (): Promise<void> => {
   } catch (err) {
     console.error('[db] Failed to connect to MongoDB:', (err as Error).message);
     process.exit(1);
+  }
+
+  // One-time backfill: accounts created before email verification existed have
+  // no emailVerified field. Mark them verified so they are not locked out;
+  // genuinely-new accounts always carry emailVerified=false.
+  try {
+    const { modifiedCount } = await User.updateMany(
+      { emailVerified: { $exists: false } },
+      { $set: { emailVerified: true } }
+    );
+    if (modifiedCount > 0) {
+      console.log(`[migrate] Backfilled emailVerified=true for ${modifiedCount} legacy user(s)`);
+    }
+  } catch (err) {
+    console.error('[migrate] Failed to backfill emailVerified:', (err as Error).message);
   }
 
   const app = createApp();

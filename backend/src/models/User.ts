@@ -20,6 +20,8 @@ export interface IUser extends MongoDocument {
   mfaMethod?: 'totp' | 'email_otp' | 'sms_otp';
   /** E.164 phone number used for SMS OTP delivery. */
   phoneNumber?: string;
+  /** True once the user confirms the email address with a sent OTP code. */
+  emailVerified: boolean;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -44,6 +46,7 @@ const userSchema = new Schema<IUser>(
       default: undefined,
     },
     phoneNumber: { type: String, trim: true, default: undefined },
+    emailVerified: { type: Boolean, default: false, index: true },
   },
   { timestamps: true }
 );

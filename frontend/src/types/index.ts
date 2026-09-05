@@ -11,6 +11,7 @@ export interface User {
   walletAddress: string;
   profileImage: string;
   isActive: boolean;
+  emailVerified: boolean;
   createdAt: string;
   updatedAt?: string;
   lastLoginAt?: string;

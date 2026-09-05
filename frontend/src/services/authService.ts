@@ -6,30 +6,58 @@ interface AuthResponse {
   user: User;
 }
 
+export interface EmailVerifyChallenge {
+  requiresEmailVerification: true;
+  mfaToken: string;
+  method: 'email_verify';
+  user: User;
+  devCode?: string;
+}
+
 export type LoginResponse =
-  | { requiresTwoFactor: false; token: string; user: User }
+  | { requiresEmailVerification: false; requiresTwoFactor: false; token: string; user: User }
   | {
+      requiresEmailVerification: false;
       requiresTwoFactor: true;
       mfaToken: string;
       method: MfaMethod;
       user: User;
       devCode?: string;
-    };
+    }
+  | EmailVerifyChallenge;
+
+export type RegisterResponse = EmailVerifyChallenge;
 
 export const authService = {
+  /**
+   * Create the account and return the mandatory email-verification challenge.
+   * A session token is ONLY issued after the OTP is confirmed via verifyEmail.
+   */
   async register(payload: {
     fullName: string;
     email: string;
     password: string;
     confirmPassword: string;
-  }): Promise<AuthResponse> {
+  }): Promise<RegisterResponse> {
     const res = await api.post('/auth/register', payload);
-    return unwrap<AuthResponse>(res.data);
+    return unwrap<RegisterResponse>(res.data);
   },
 
   async login(email: string, password: string): Promise<LoginResponse> {
     const res = await api.post('/auth/login', { email, password });
     return unwrap<LoginResponse>(res.data);
+  },
+
+  /** Confirm the signup/verification OTP and receive the session token. */
+  async verifyEmail(mfaToken: string, code: string): Promise<AuthResponse> {
+    const res = await api.post('/auth/verify-email', { mfaToken, code });
+    return unwrap<AuthResponse>(res.data);
+  },
+
+  /** Re-send the email verification OTP (rate-limited on the server). */
+  async resendVerification(mfaToken: string): Promise<{ devCode?: string }> {
+    const res = await api.post('/auth/resend-verification', { mfaToken });
+    return unwrap<{ devCode?: string }>(res.data);
   },
 
   /** Step 2 of two-factor login: exchange the MFA challenge for a session. */

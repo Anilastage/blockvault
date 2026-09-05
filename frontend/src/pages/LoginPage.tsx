@@ -3,10 +3,11 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { LogIn, ShieldAlert } from 'lucide-react';
+import { LogIn, ShieldAlert, MailCheck, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { getApiErrorMessage } from '@/services/api';
+import { authService } from '@/services/authService';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import type { User, MfaMethod } from '@/types';
@@ -28,18 +29,19 @@ type FormValues = z.infer<typeof schema>;
 type MfaValues = z.infer<typeof mfaSchema>;
 
 export const LoginPage = () => {
-  const { login, completeMfa } = useAuth();
+  const { login, completeMfa, completeEmailVerification } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation() as { state?: { from?: string } };
   const [params] = useSearchParams();
 
-  const [stage, setStage] = useState<'credentials' | 'mfa'>('credentials');
+  const [stage, setStage] = useState<'credentials' | 'mfa' | 'verify-email'>('credentials');
   const [mfaToken, setMfaToken] = useState('');
   const [mfaMethod, setMfaMethod] = useState<MfaMethod>('totp');
   const [devCode, setDevCode] = useState<string | undefined>();
   const [serverError, setServerError] = useState('');
   const [mfaError, setMfaError] = useState('');
+  const [resending, setResending] = useState(false);
 
   const goToDashboard = (user: User) => {
     const next =
@@ -64,6 +66,12 @@ export const LoginPage = () => {
     setServerError('');
     try {
       const result = await login(values.email, values.password);
+      if (result.requiresEmailVerification) {
+        setMfaToken(result.mfaToken);
+        setDevCode(result.devCode);
+        setStage('verify-email');
+        return;
+      }
       if (result.requiresTwoFactor) {
         setMfaToken(result.mfaToken);
         setMfaMethod(result.method ?? 'totp');
@@ -77,6 +85,33 @@ export const LoginPage = () => {
       const message = getApiErrorMessage(err);
       setServerError(message);
       toast(message, 'error', 'Login failed');
+    }
+  };
+
+  const onVerifyEmail = async (values: MfaValues) => {
+    setMfaError('');
+    try {
+      const user = await completeEmailVerification(mfaToken, values.code);
+      toast(`Email verified. Welcome back, ${user.fullName.split(' ')[0]}!`, 'success');
+      goToDashboard(user);
+    } catch (err) {
+      const message = getApiErrorMessage(err);
+      setMfaError(message);
+      toast(message, 'error', 'Verification failed');
+    }
+  };
+
+  const onResendVerifyCode = async () => {
+    if (!mfaToken || resending) return;
+    setResending(true);
+    try {
+      const { devCode: fresh } = await authService.resendVerification(mfaToken);
+      setDevCode(fresh);
+      toast('A fresh code was sent to your email.', 'success');
+    } catch (err) {
+      toast(getApiErrorMessage(err), 'error', 'Resend failed');
+    } finally {
+      setResending(false);
     }
   };
 
@@ -131,18 +166,22 @@ export const LoginPage = () => {
       {/* Form */}
       <div className="flex w-full items-center justify-center bg-slate-50 px-4 py-12 lg:w-1/2">
         <div className="w-full max-w-sm animate-fade-in">
-          {stage === 'mfa' ? (
+          {stage === 'mfa' || stage === 'verify-email' ? (
             <>
               <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
-                <ShieldAlert className="h-6 w-6" />
+                {stage === 'verify-email' ? <MailCheck className="h-6 w-6" /> : <ShieldAlert className="h-6 w-6" />}
               </div>
-              <h1 className="text-2xl font-bold tracking-tight text-dark">Two-factor check</h1>
+              <h1 className="text-2xl font-bold tracking-tight text-dark">
+                {stage === 'verify-email' ? 'Verify your email' : 'Two-factor check'}
+              </h1>
               <p className="mt-1.5 text-sm text-slate-500">
-                {mfaMethod === 'totp'
-                  ? 'Enter the 6-digit code from your authenticator app, or one of your recovery codes.'
-                  : mfaMethod === 'email_otp'
-                    ? 'We\'ve emailed you a 6-digit code. Enter it to continue.'
-                    : 'We\'ve texted you a 6-digit code. Enter it to continue.'}
+                {stage === 'verify-email'
+                  ? 'Your email still needs to be confirmed. We\'ve sent you a 6-digit code — enter it to finish activating your account.'
+                  : mfaMethod === 'totp'
+                    ? 'Enter the 6-digit code from your authenticator app, or one of your recovery codes.'
+                    : mfaMethod === 'email_otp'
+                      ? 'We\'ve emailed you a 6-digit code. Enter it to continue.'
+                      : 'We\'ve texted you a 6-digit code. Enter it to continue.'}
               </p>
 
               {devCode && (
@@ -155,7 +194,11 @@ export const LoginPage = () => {
                 </div>
               )}
 
-              <form className="mt-7 space-y-4" onSubmit={handleMfaSubmit(onMfaSubmit)} noValidate>
+              <form
+                className="mt-7 space-y-4"
+                onSubmit={handleMfaSubmit(stage === 'verify-email' ? onVerifyEmail : onMfaSubmit)}
+                noValidate
+              >
                 {mfaError && (
                   <div className="rounded-lg border border-danger-100 bg-danger-100/50 px-4 py-3 text-sm text-danger">
                     {mfaError}
@@ -171,17 +214,32 @@ export const LoginPage = () => {
                   {...mfaField('code')}
                 />
                 <Button type="submit" fullWidth size="lg" loading={mfaSubmitting} icon={<ShieldAlert className="h-4 w-4" />}>
-                  Verify & sign in
+                  {stage === 'verify-email' ? 'Verify email & sign in' : 'Verify & sign in'}
                 </Button>
               </form>
 
-              <button
-                type="button"
-                onClick={() => setStage('credentials')}
-                className="mt-6 w-full text-center text-sm font-medium text-primary-600 hover:text-primary-500"
-              >
-                ← Back to sign in
-              </button>
+              <div className="mt-6 flex items-center justify-between text-sm">
+                {stage === 'verify-email' ? (
+                  <button
+                    type="button"
+                    onClick={onResendVerifyCode}
+                    disabled={resending}
+                    className="inline-flex items-center gap-1.5 font-medium text-primary-600 hover:text-primary-500 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${resending ? 'animate-spin' : ''}`} />
+                    {resending ? 'Resending...' : 'Resend code'}
+                  </button>
+                ) : (
+                  <span />
+                )}
+                <button
+                  type="button"
+                  onClick={() => setStage('credentials')}
+                  className="font-medium text-primary-600 hover:text-primary-500"
+                >
+                  ← Back to sign in
+                </button>
+              </div>
             </>
           ) : (
             <>

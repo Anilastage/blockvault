@@ -11,12 +11,13 @@ export const generateOtp = (): string =>
 export const hashOtp = (code: string): string =>
   crypto.createHash('sha256').update(code.trim()).digest('hex');
 
-/** Number of ms until the user may request another OTP on this channel. */
+/** Number of ms until the user may request another OTP for this purpose+channel. */
 export const rateLimitRemaining = async (
   userId: string,
+  purpose: OtpPurpose,
   channel: OtpChannel
 ): Promise<number> => {
-  const latest = await OtpCode.findOne({ userId, channel }).sort({ createdAt: -1 });
+  const latest = await OtpCode.findOne({ userId, purpose, channel }).sort({ createdAt: -1 });
   if (!latest || !latest.createdAt) return 0;
   const elapsed = Date.now() - new Date(latest.createdAt).getTime();
   const remaining = OTP_RATE_LIMIT_MS - elapsed;

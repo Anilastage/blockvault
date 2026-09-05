@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { authService } from '@/services/authService';
-import type { LoginResponse } from '@/services/authService';
+import type { LoginResponse, RegisterResponse } from '@/services/authService';
 import { TOKEN_KEY } from '@/services/api';
 import type { User, UserRole } from '@/types';
 
@@ -25,7 +25,8 @@ interface AuthContextValue {
     email: string;
     password: string;
     confirmPassword: string;
-  }) => Promise<User>;
+  }) => Promise<RegisterResponse>;
+  completeEmailVerification: (mfaToken: string, code: string) => Promise<User>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -62,6 +63,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const login = useCallback(async (email: string, password: string) => {
     const result = await authService.login(email, password);
+    // Email verification (mandatory for legacy/unverified accounts) and the MFA
+    // challenge both return without a session token — let the page handle them.
+    if (result.requiresEmailVerification) return result;
     if (result.requiresTwoFactor) return result;
     localStorage.setItem(TOKEN_KEY, result.token);
     setUser(result.user);
@@ -76,10 +80,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const register = useCallback(async (payload: Parameters<typeof authService.register>[0]) => {
-    const { token, user: newUser } = await authService.register(payload);
+    // Registration now returns a mandatory email-verification challenge; no
+    // session token is stored until completeEmailVerification succeeds.
+    return authService.register(payload);
+  }, []);
+
+  const completeEmailVerification = useCallback(async (mfaToken: string, code: string) => {
+    const { token, user: verifiedUser } = await authService.verifyEmail(mfaToken, code);
     localStorage.setItem(TOKEN_KEY, token);
-    setUser(newUser);
-    return newUser;
+    setUser(verifiedUser);
+    return verifiedUser;
   }, []);
 
   const logout = useCallback(async () => {
@@ -103,10 +113,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       login,
       completeMfa,
       register,
+      completeEmailVerification,
       logout,
       refreshUser,
     }),
-    [user, loading, login, completeMfa, register, logout, refreshUser]
+    [user, loading, login, completeMfa, register, completeEmailVerification, logout, refreshUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
