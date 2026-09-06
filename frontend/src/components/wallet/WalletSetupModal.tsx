@@ -20,7 +20,7 @@ const isAndroid = typeof window !== 'undefined' && /Android/i.test(window.naviga
 const getDappDeepLink = (): string => {
   const host = window.location.host;
   if (!host || /^localhost|^127\.|^192\.168\.|^10\./.test(host)) return '';
-  return `https://link.metamask.io/dapp/${host}`;
+  return `https://metamask.app.link/dapp/${host}`;
 };
 
 const deviceSteps: Record<DeviceTab, { title: string; short: string; steps: string[] }> = {
