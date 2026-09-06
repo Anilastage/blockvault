@@ -120,7 +120,15 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
     if (!hasMetaMask()) return false;
     try {
       const provider = new BrowserProvider(window.ethereum as Eip1193Provider);
-      await provider.send('eth_requestAccounts', []);
+      await Promise.race([
+        provider.send('eth_requestAccounts', []),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error('Timed out waiting for MetaMask approval')),
+            45000
+          )
+        ),
+      ]);
       const signer = await provider.getSigner();
       const address = await signer.getAddress();
       const network = await provider.getNetwork();
@@ -137,7 +145,7 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
   const connect = useCallback(async () => {
     setConnecting(true);
     try {
-      await refreshConfig();
+      void refreshConfig();
       if (hasMetaMask()) {
         const ok = await connectMetaMask();
         if (ok) {
