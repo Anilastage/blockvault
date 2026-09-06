@@ -119,7 +119,7 @@ export const documentsAnalytics = asyncHandler(async (req: Request, res: Respons
           ext: {
             $toUpper: {
               $ifNull: [
-                { $arrayElemAt: [{ $split: [{ $arrayElemAt: [{ $split: ['$originalName', '.'] }, -1] }] }, 0] },
+                { $arrayElemAt: [{ $split: [{ $arrayElemAt: [{ $split: ['$originalName', '.'] }, -1] }, '.'] }, 0] },
                 'OTHER',
               ],
             },
