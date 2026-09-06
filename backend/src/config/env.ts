@@ -48,7 +48,9 @@ export const env = {
     dir: 'uploads',
   },
   email: {
-    smtpEnabled: process.env.SMTP_ENABLED !== 'false',
+    // TEMP: SMTP delivery is disabled so OTPs fall back to the on-screen
+    // devCode. Re-enable with the SMTP_* env vars once outbound email works.
+    smtpEnabled: false,
     smtpHost: process.env.SMTP_HOST ?? '',
     smtpPort: parseInt(process.env.SMTP_PORT ?? '587', 10),
     smtpUser: process.env.SMTP_USER ?? '',
