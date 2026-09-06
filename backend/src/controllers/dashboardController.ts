@@ -76,8 +76,6 @@ export const getAnalytics = asyncHandler(async (req: Request, res: Response) => 
   ).lean();
 
   // Build daily buckets for the last 30 days.
-  const buckets: Array<{ date: string; uploads: number; verifications: number; transactions: number }> =
-    [];
   const byDate = new Map<string, { uploads: number; verifications: number; transactions: number }>();
   for (let i = 29; i >= 0; i--) {
     const d = new Date();
@@ -85,7 +83,6 @@ export const getAnalytics = asyncHandler(async (req: Request, res: Response) => 
     d.setUTCDate(d.getUTCDate() - i);
     const key = d.toISOString().slice(0, 10);
     byDate.set(key, { uploads: 0, verifications: 0, transactions: 0 });
-    buckets.push({ date: key, ...byDate.get(key)! });
   }
 
   let confirmedTxs = 0;
@@ -110,7 +107,7 @@ export const getAnalytics = asyncHandler(async (req: Request, res: Response) => 
     success: true,
     message: 'Analytics retrieved',
     data: {
-      timeline: buckets,
+      timeline: [...byDate.entries()].map(([date, v]) => ({ date, ...v })),
       verificationResults: [
         { name: 'Verified', value: resultCounts.VERIFIED },
         { name: 'Modified', value: resultCounts.MODIFIED },

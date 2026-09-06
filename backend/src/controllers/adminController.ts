@@ -180,14 +180,12 @@ export const getSystemAnalytics = asyncHandler(async (_req: Request, res: Respon
   ]);
 
   const byDate = new Map<string, { users: number; uploads: number; verifications: number }>();
-  const timeline: Array<{ date: string; users: number; uploads: number; verifications: number }> = [];
   for (let i = 29; i >= 0; i--) {
     const d = new Date();
     d.setUTCHours(0, 0, 0, 0);
     d.setUTCDate(d.getUTCDate() - i);
     const key = d.toISOString().slice(0, 10);
     byDate.set(key, { users: 0, uploads: 0, verifications: 0 });
-    timeline.push({ date: key, ...byDate.get(key)! });
   }
   for (const u of recentUsers) {
     byDate.get(new Date(u.createdAt ?? 0).toISOString().slice(0, 10))!.users += 1;
@@ -215,7 +213,7 @@ export const getSystemAnalytics = asyncHandler(async (_req: Request, res: Respon
         failedTransactions: failedTx,
         pendingTransactions: pendingTx,
       },
-      timeline,
+      timeline: [...byDate.entries()].map(([date, v]) => ({ date, ...v })),
       documentIntegrity: [
         { name: 'Verified', value: verifiedCount },
         { name: 'Modified', value: modifiedCount },
