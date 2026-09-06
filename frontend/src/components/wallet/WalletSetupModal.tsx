@@ -14,6 +14,15 @@ interface WalletSetupModalProps {
 
 const INSTALL_URL = 'https://metamask.io/download/';
 
+const isIOS = typeof window !== 'undefined' && /iPad|iPhone|iPod/.test(window.navigator.userAgent);
+const isAndroid = typeof window !== 'undefined' && /Android/i.test(window.navigator.userAgent);
+
+const getDappDeepLink = (): string => {
+  const host = window.location.host;
+  if (!host || /^localhost|^127\.|^192\.168\.|^10\./.test(host)) return '';
+  return `https://link.metamask.io/dapp/${host}`;
+};
+
 const deviceSteps: Record<DeviceTab, { title: string; short: string; steps: string[] }> = {
   desktop: {
     title: 'Desktop',
@@ -31,8 +40,8 @@ const deviceSteps: Record<DeviceTab, { title: string; short: string; steps: stri
     steps: [
       'Install the MetaMask app from the Google Play Store.',
       'Open the app and create/import a wallet.',
-      'Reinstall this site through MetaMask\'s in-app browser: tap the Ξ menu → Browser → open BlockVault.',
-      'Then click "Connect Wallet" — MetaMask will ask you to approve the connection.',
+      'Tap "Open BlockVault in the MetaMask app" above — this site reopens inside MetaMask.',
+      'Click "Connect Wallet" — MetaMask will ask you to approve the connection.',
     ],
   },
   iphone: {
@@ -41,14 +50,18 @@ const deviceSteps: Record<DeviceTab, { title: string; short: string; steps: stri
     steps: [
       'Install the MetaMask app from the App Store.',
       'Open the app and create/import a wallet.',
-      'Use MetaMask\'s built-in browser (Ξ menu → Browser) to open BlockVault.',
-      'Then click "Connect Wallet" — MetaMask will ask you to approve the connection.',
+      'Tap "Open BlockVault in the MetaMask app" above — this site reopens inside MetaMask.',
+      'Click "Connect Wallet" — MetaMask will ask you to approve the connection.',
     ],
   },
 };
 
 export const WalletSetupModal = ({ open, onClose, onRetry, retrying }: WalletSetupModalProps) => {
-  const [device, setDevice] = useState<DeviceTab>('desktop');
+  const [device, setDevice] = useState<DeviceTab>(() =>
+    isAndroid ? 'android' : isIOS ? 'iphone' : 'desktop'
+  );
+  const showDeepLink = isAndroid || isIOS;
+  const deepLink = showDeepLink ? getDappDeepLink() : '';
   const info = deviceSteps[device];
 
   return (
@@ -63,9 +76,24 @@ export const WalletSetupModal = ({ open, onClose, onRetry, retrying }: WalletSet
           </p>
         </div>
 
+        {deepLink && (
+          <div className="rounded-xl border border-primary-200 bg-primary-50 px-4 py-4">
+            <p className="text-sm font-semibold text-primary-800">Have the MetaMask app on this phone?</p>
+            <p className="mt-1 text-xs leading-relaxed text-primary-700">
+              This opens BlockVault inside the MetaMask app itself — the wallet connects automatically and you
+              can sign blockchain transactions right away.
+            </p>
+            <a href={deepLink} rel="noopener noreferrer" className="mt-3 block">
+              <Button fullWidth icon={<ExternalLink className="h-4 w-4" />}>
+                Open BlockVault in the MetaMask app
+              </Button>
+            </a>
+          </div>
+        )}
+
         <a href={INSTALL_URL} target="_blank" rel="noopener noreferrer">
           <Button fullWidth icon={<ExternalLink className="h-4 w-4" />}>
-            Go to MetaMask download
+            Install MetaMask
           </Button>
         </a>
 
@@ -87,7 +115,7 @@ export const WalletSetupModal = ({ open, onClose, onRetry, retrying }: WalletSet
                 ) : (
                   <Smartphone className="h-4 w-4" />
                 )}
-                {info.title}
+                {deviceSteps[tab].title}
               </button>
             ))}
           </div>
@@ -104,11 +132,13 @@ export const WalletSetupModal = ({ open, onClose, onRetry, retrying }: WalletSet
           </ol>
         </div>
 
-        <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-500">
-          Using another wallet? Any wallet that injects <code className="font-mono">window.ethereum</code>{' '}
-          (Rabby, Coinbase Wallet, Brave Wallet, Trust Wallet, ...) also works — just connect it the same
-          way.
-        </div>
+        {!deepLink && (
+          <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-500">
+            Using another wallet? Any wallet that injects <code className="font-mono">window.ethereum</code>{' '}
+            (Rabby, Coinbase Wallet, Brave Wallet, Trust Wallet, ...) also works — just connect it the same
+            way.
+          </div>
+        )}
 
         <div className="flex items-center justify-end gap-3 pt-2">
           <button
