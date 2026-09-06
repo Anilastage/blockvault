@@ -81,20 +81,24 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
   const signerRef = useRef<Signer | null>(null);
   const restoreAttempted = useRef(false);
 
-  // Fetch the expected network configuration from the backend.
-  useEffect(() => {
-    blockchainService
-      .config()
-      .then((config) => {
-        setExpectedChainId(config.chainId);
-        setContractAddress(config.contractAddress ?? '');
-        setExplorerUrl(config.explorerUrl ?? '');
-        setRpcUrl(config.rpcUrl ?? '');
-      })
-      .catch(() => undefined);
+  const hasMetaMask = useCallback(() => typeof window !== 'undefined' && !!window.ethereum, []);
+
+  const refreshConfig = useCallback(async (): Promise<void> => {
+    try {
+      const config = await blockchainService.config();
+      setExpectedChainId(config.chainId);
+      setContractAddress(config.contractAddress ?? '');
+      setExplorerUrl(config.explorerUrl ?? '');
+      setRpcUrl(config.rpcUrl ?? '');
+    } catch {
+      return;
+    }
   }, []);
 
-  const hasMetaMask = useCallback(() => typeof window !== 'undefined' && !!window.ethereum, []);
+  // Fetch the expected network configuration from the backend.
+  useEffect(() => {
+    void refreshConfig();
+  }, [refreshConfig]);
 
   const connectDemo = useCallback(async (): Promise<boolean> => {
     if (!rpcUrl) return false;
@@ -133,6 +137,7 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
   const connect = useCallback(async () => {
     setConnecting(true);
     try {
+      await refreshConfig();
       if (hasMetaMask()) {
         const ok = await connectMetaMask();
         if (ok) {
@@ -169,7 +174,7 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setConnecting(false);
     }
-  }, [hasMetaMask, connectMetaMask, connectDemo, toast]);
+  }, [hasMetaMask, connectMetaMask, connectDemo, toast, refreshConfig]);
 
   // Silently restore the wallet on reload if the user had connected before.
   // Attempt only once: if the node is down the connect fails and we must NOT
