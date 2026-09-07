@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   ShieldCheck,
@@ -15,6 +15,9 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  Copy,
+  Check,
+  ScrollText,
 } from 'lucide-react';
 import { verificationService } from '@/services/verificationService';
 import { documentService } from '@/services/documentService';
@@ -28,6 +31,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { HashDisplay } from '@/components/ui/HashDisplay';
+import { CertificateModal, type CertificateData } from '@/components/documents/CertificateModal';
 import { formatDateTime, formatBytes } from '@/utils/format';
 import type { VerifyOutcome, AccessRequestItem } from '@/types';
 
@@ -37,15 +41,30 @@ export const VerifyPage = () => {
   const { isAuthenticated } = useAuth();
   const toast = useToast();
   const [params] = useSearchParams();
+  const { hash: routeHash } = useParams<{ hash: string }>();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [tab, setTab] = useState<Tab>('file');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [localHash, setLocalHash] = useState('');
   const [hashing, setHashing] = useState(false);
-  const [pastedHash, setPastedHash] = useState('');
+  const [pastedHash, setPastedHash] = useState(routeHash && isValidSha256(routeHash) ? routeHash : '');
   const [selectedDocId, setSelectedDocId] = useState(params.get('document') ?? '');
   const [outcome, setOutcome] = useState<VerifyOutcome | null>(null);
+
+  // /verify/:hash deep link (used by share links, QR codes and certificates):
+  // prefill the hash tab and verify immediately.
+  const autoRan = useRef(false);
+  const hasRouteHash = !!routeHash && isValidSha256(routeHash);
+  useEffect(() => {
+    if (hasRouteHash && !autoRan.current) {
+      autoRan.current = true;
+      setTab('hash');
+      setOutcome(null);
+      verifyMutation.mutate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasRouteHash]);
 
   // Documents list for the "select existing" tab AND for prefilling the hash
   // when arriving via a ?document= deep link.
@@ -81,21 +100,29 @@ export const VerifyPage = () => {
     return docs.data.documents.find((d) => d._id === params.get('document')) ?? null;
   }, [docs.data, params]);
 
-  const hashToCheck = prefillDoc?.sha256Hash ?? pastedHash.trim();
+  const hashToCheck = (hasRouteHash && routeHash) || prefillDoc?.sha256Hash || pastedHash.trim();
 
   const verifyMutation = useMutation({
     mutationFn: async () => {
       if (tab === 'file') {
         if (prefillDoc) {
-          return verificationService.verifyUploadedFile(selectedFile!, prefillDoc._id);
+          return isAuthenticated
+            ? verificationService.verifyUploadedFile(selectedFile!, prefillDoc._id)
+            : verificationService.verifyUploadedFilePublic(selectedFile!, prefillDoc._id);
         }
-        return verificationService.verifyUploadedFile(selectedFile!);
+        return isAuthenticated
+          ? verificationService.verifyUploadedFile(selectedFile!)
+          : verificationService.verifyUploadedFilePublic(selectedFile!);
       }
       if (!isValidSha256(hashToCheck)) throw new Error('Please provide a valid 64-character digital fingerprint.');
       if (tab === 'existing' || prefillDoc) {
-        return verificationService.verifyByHash(hashToCheck, prefillDoc?._id ?? selectedDoc?._id);
+        return isAuthenticated
+          ? verificationService.verifyByHash(hashToCheck, prefillDoc?._id ?? selectedDoc?._id)
+          : verificationService.verifyByHashPublic(hashToCheck, prefillDoc?._id ?? selectedDoc?._id);
       }
-      return verificationService.verifyByHash(hashToCheck);
+      return isAuthenticated
+        ? verificationService.verifyByHash(hashToCheck)
+        : verificationService.verifyByHashPublic(hashToCheck);
     },
     onSuccess: (data) => {
       setOutcome(data);
@@ -137,14 +164,16 @@ export const VerifyPage = () => {
     <div className="mx-auto max-w-3xl space-y-6 animate-fade-in">
       {/* Tabs */}
       <Card className="p-2">
-        <div className="grid grid-cols-3 gap-1">
+        <div className={`grid gap-1 ${isAuthenticated ? 'grid-cols-3' : 'grid-cols-2'}`}>
           {(
             [
               { key: 'file', label: 'Upload File', icon: UploadCloud },
               { key: 'existing', label: 'My Documents', icon: FileText },
               { key: 'hash', label: 'Paste Hash', icon: Hash },
             ] as Array<{ key: Tab; label: string; icon: typeof Hash }>
-          ).map(({ key, label, icon: Icon }) => (
+          )
+            .filter((t) => isAuthenticated || t.key !== 'existing')
+            .map(({ key, label, icon: Icon }) => (
             <button
               key={key}
               onClick={() => {
@@ -298,7 +327,13 @@ export const VerifyPage = () => {
       </Button>
 
       {/* Result */}
-      {outcome && <VerificationResult outcome={outcome} explorerTx={explorerTx} />}
+      {outcome && (
+        <VerificationResult
+          outcome={outcome}
+          explorerTx={explorerTx}
+          config={config.data ?? null}
+        />
+      )}
     </div>
   );
 };
@@ -306,15 +341,19 @@ export const VerifyPage = () => {
 const VerificationResult = ({
   outcome,
   explorerTx,
+  config,
 }: {
   outcome: VerifyOutcome;
   explorerTx: string | null;
+  config: { contractAddress: string; chainId: number } | null;
 }) => {
   const toast = useToast();
   const { isAuthenticated } = useAuth();
   const [downloading, setDownloading] = useState(false);
   const [showReason, setShowReason] = useState(false);
   const [reason, setReason] = useState('');
+  const [certOpen, setCertOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const doc = outcome.document;
   const isOwner = doc?.ownedByMe ?? false;
@@ -403,7 +442,36 @@ const VerificationResult = ({
   };
   const cfg = configs[outcome.result];
 
+  const verifyHash = outcome.blockchainHash ?? outcome.calculatedHash;
+  const verifyUrl = `${window.location.origin}/verify/${verifyHash}`;
+
+  const copyVerifyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(verifyUrl);
+      setCopied(true);
+      toast('Public verification link copied.', 'success');
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast('Could not copy the link.', 'error');
+    }
+  };
+
+  const certData: CertificateData = {
+    documentName: doc?.originalName ?? 'BlockVault Document',
+    sha256Hash: verifyHash,
+    mimeType: doc?.mimeType,
+    fileSize: doc?.fileSize,
+    ownerWallet: outcome.chain.owner || undefined,
+    blockNumber: outcome.chain.blockNumber || undefined,
+    transactionHash: outcome.chain.transactionHash,
+    registeredAt: outcome.chain.timestamp ? new Date(outcome.chain.timestamp * 1000).toISOString() : undefined,
+    contractAddress: config?.contractAddress || undefined,
+    chainName: config ? blockchainService.networkName(config.chainId) : undefined,
+    explorerTxUrl: explorerTx,
+  };
+
   return (
+    <>
     <Card className={`animate-fade-in border-2 p-6 ${cfg.card}`}>
       <div className="flex flex-col items-center text-center">
         <div className="animate-pulse-soft">{cfg.icon}</div>
@@ -457,6 +525,17 @@ const VerificationResult = ({
           </dl>
         )}
 
+        {outcome.result !== 'NOT_FOUND' && (
+          <div className="flex flex-col gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <Button variant="outline" size="sm" onClick={copyVerifyLink} icon={copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}>
+              {copied ? 'Link copied' : 'Copy verify link'}
+            </Button>
+            <Button size="sm" onClick={() => setCertOpen(true)} icon={<ScrollText className="h-4 w-4" />}>
+              Certificate & QR
+            </Button>
+          </div>
+        )}
+
         {doc && (
           <div className="flex flex-col gap-3 border-t border-slate-100 pt-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -502,6 +581,8 @@ const VerificationResult = ({
         )}
       </div>
     </Card>
+    <CertificateModal open={certOpen} onClose={() => setCertOpen(false)} data={certOpen ? certData : null} />
+    </>
   );
 };
 

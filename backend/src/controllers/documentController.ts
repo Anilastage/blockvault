@@ -27,10 +27,11 @@ const buildSearchFilter = (search: string | undefined) => {
 };
 
 /**
- * Create a document record after the wallet has registered its hash on-chain.
- * Accepts multipart form data: the file plus its claimed metadata.
- * The server re-hashes the actual bytes and independently verifies that the
- * submitted transaction really registered this hash in the smart contract.
+ * Create a document record. Two modes:
+ *  - Registered: the wallet has already stored the file's hash on-chain, so the
+ *    submitted transactionHash is independently verified server-side.
+ *  - Pending: no transactionHash is supplied; the document is saved as PENDING
+ *    and can be registered on-chain later via POST /api/documents/:id/register.
  */
 export const createDocument = asyncHandler(async (req: Request, res: Response) => {
   const file = req.file;
@@ -42,7 +43,7 @@ export const createDocument = asyncHandler(async (req: Request, res: Response) =
       fileSize: number;
       mimeType: string;
       sha256Hash: string;
-      transactionHash: string;
+      transactionHash?: string;
       blockNumber?: number;
     };
 
@@ -59,11 +60,18 @@ export const createDocument = asyncHandler(async (req: Request, res: Response) =
     throw ApiError.badRequest('File size mismatch.');
   }
 
-  // 2. Transaction must genuinely exist and register this exact hash.
-  const validation = await validateRegistrationTx(transactionHash, computedHash);
-  if (!validation.valid || !validation.details) {
-    await fs.unlink(file.path).catch(() => undefined);
-    throw ApiError.badRequest(validation.reason ?? 'Blockchain transaction could not be verified.');
+  let validatedTx = undefined;
+  // 2. When a transaction is supplied it must genuinely exist and register
+  // this exact hash.
+  if (transactionHash) {
+    const validation = await validateRegistrationTx(transactionHash, computedHash);
+    if (!validation.valid || !validation.details) {
+      await fs.unlink(file.path).catch(() => undefined);
+      throw ApiError.badRequest(
+        validation.reason ?? 'Blockchain transaction could not be verified.'
+      );
+    }
+    validatedTx = validation.details;
   }
 
   const document = await DocumentModel.create({
@@ -74,14 +82,14 @@ export const createDocument = asyncHandler(async (req: Request, res: Response) =
     mimeType,
     storagePath: file.filename,
     sha256Hash: computedHash,
-    blockchainHash: computedHash,
-    transactionHash,
-    blockNumber: validation.details.blockNumber ?? blockNumber,
-    contractAddress: env.blockchain.contractAddress.toLowerCase(),
-    chainId: env.blockchain.chainId,
+    blockchainHash: validatedTx ? computedHash : undefined,
+    transactionHash: validatedTx ? transactionHash : undefined,
+    blockNumber: validatedTx ? (validatedTx.blockNumber ?? blockNumber) : undefined,
+    contractAddress: validatedTx ? env.blockchain.contractAddress.toLowerCase() : undefined,
+    chainId: validatedTx ? env.blockchain.chainId : undefined,
     uploadedAt: new Date(),
-    blockchainStatus: 'CONFIRMED',
-    verificationStatus: 'VERIFIED',
+    blockchainStatus: validatedTx ? 'CONFIRMED' : 'PENDING',
+    verificationStatus: validatedTx ? 'VERIFIED' : 'UNVERIFIED',
   }).catch(async (err: Error) => {
     await fs.unlink(file.path).catch(() => undefined);
     throw err;
@@ -99,19 +107,80 @@ export const createDocument = asyncHandler(async (req: Request, res: Response) =
     },
     ...clientMeta(req.ip, req.headers['user-agent']),
   });
+  if (validatedTx) {
+    await logActivity({
+      userId: String(req.user!.id),
+      action: 'BLOCKCHAIN_REGISTER',
+      entityType: 'DOCUMENT',
+      entityId: String(document._id),
+      metadata: { transactionHash, blockNumber: document.blockNumber },
+      ...clientMeta(req.ip, req.headers['user-agent']),
+    });
+  }
+
+  res.status(201).json({
+    success: true,
+    message: validatedTx
+      ? 'Document registered on the blockchain successfully'
+      : 'Document uploaded. It will appear as pending until you register it on the blockchain.',
+    data: { document },
+  });
+});
+
+/**
+ * POST /api/documents/:id/register
+ * Confirms a previously PENDING document after the wallet has registered its
+ * hash. Mirrors the on-chain verification done in createDocument.
+ */
+export const registerDocument = asyncHandler(async (req: Request, res: Response) => {
+  const document = await DocumentModel.findById(req.params.id);
+  if (!document) throw ApiError.notFound('Document not found');
+
+  const isOwner = String(document.userId) === String(req.user!.id);
+  if (!isOwner && req.user!.role !== 'ADMIN') {
+    throw ApiError.forbidden('You do not have access to this document');
+  }
+  if (document.blockchainStatus === 'CONFIRMED') {
+    throw ApiError.badRequest('This document is already registered on the blockchain.');
+  }
+
+  const { transactionHash, blockNumber } = req.body as {
+    transactionHash: string;
+    blockNumber?: number;
+  };
+
+  const validation = await validateRegistrationTx(transactionHash, document.sha256Hash);
+  if (!validation.valid || !validation.details) {
+    throw ApiError.badRequest(validation.reason ?? 'Blockchain transaction could not be verified.');
+  }
+
+  const updated = await DocumentModel.findByIdAndUpdate(
+    document._id,
+    {
+      blockchainHash: document.sha256Hash,
+      transactionHash,
+      blockNumber: validation.details.blockNumber ?? blockNumber,
+      contractAddress: env.blockchain.contractAddress.toLowerCase(),
+      chainId: env.blockchain.chainId,
+      blockchainStatus: 'CONFIRMED' as const,
+      verificationStatus: 'VERIFIED' as const,
+    },
+    { new: true }
+  );
+
   await logActivity({
     userId: String(req.user!.id),
     action: 'BLOCKCHAIN_REGISTER',
     entityType: 'DOCUMENT',
     entityId: String(document._id),
-    metadata: { transactionHash, blockNumber: document.blockNumber },
+    metadata: { transactionHash, blockNumber: updated?.blockNumber },
     ...clientMeta(req.ip, req.headers['user-agent']),
   });
 
-  res.status(201).json({
+  res.json({
     success: true,
     message: 'Document registered on the blockchain successfully',
-    data: { document },
+    data: { document: updated },
   });
 });
 

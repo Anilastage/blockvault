@@ -110,3 +110,27 @@
     color: #818cf8;
   }
 }
+
+/* Certificate printing: hide the app chrome and print only the certificate. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .certificate-print,
+  .certificate-print * {
+    visibility: visible;
+  }
+  .certificate-print {
+    position: fixed;
+    inset: 0;
+    overflow: visible;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .certificate-print .no-print {
+    display: none !important;
+  }
+  @page {
+    margin: 12mm;
+  }
+}

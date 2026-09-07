@@ -10,6 +10,7 @@ import {
   Eye,
   Link2,
   ShieldCheck,
+  Zap,
 } from 'lucide-react';
 import { documentService } from '@/services/documentService';
 import { Card } from '@/components/ui/Card';
@@ -21,8 +22,11 @@ import { PaginationControls } from '@/components/ui/Pagination';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Modal } from '@/components/ui/Modal';
 import { useToast } from '@/context/ToastContext';
+import { useWallet } from '@/context/WalletContext';
 import { getApiErrorMessage } from '@/services/api';
 import { formatBytes, formatDate, fileExtension } from '@/utils/format';
+import { registerHashOnChain, isRegisterFailure, failureMessage } from '@/utils/blockchainRegistration';
+import type { DocumentItem } from '@/types';
 
 const filters = [
   { value: '', label: 'All' },
@@ -34,6 +38,7 @@ const filters = [
 export const DocumentsPage = () => {
   const navigate = useNavigate();
   const toast = useToast();
+  const wallet = useWallet();
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
 
@@ -72,6 +77,68 @@ export const DocumentsPage = () => {
     onError: (err) => toast(getApiErrorMessage(err), 'error', 'Download failed'),
   });
 
+  const reportRegisterError = (err: unknown) => {
+    if (!isRegisterFailure(err)) {
+      toast(getApiErrorMessage(err), 'error', 'Registration failed');
+      return;
+    }
+    if (err.kind === 'network') {
+      toast('Wrong network. Switch your wallet to the expected network and try again.', 'warning');
+      void wallet.switchToExpectedNetwork();
+      return;
+    }
+    if (err.kind === 'duplicate') {
+      toast(failureMessage(err), 'error', 'Already registered');
+      return;
+    }
+    if (err.kind === 'contract') {
+      toast(err.message, 'error', 'Contract not configured');
+      return;
+    }
+    toast(err.message, 'error', 'Registration failed');
+  };
+
+  const registerMutation = useMutation({
+    mutationFn: async (doc: DocumentItem) => {
+      const { transactionHash, blockNumber } = await registerHashOnChain(wallet, {
+        hash: doc.sha256Hash,
+        originalName: doc.originalName,
+      });
+      return documentService.register(doc._id, { transactionHash, blockNumber });
+    },
+    onSuccess: async () => {
+      toast('Document registered on the blockchain.', 'success');
+      await queryClient.invalidateQueries({ queryKey: ['documents'] });
+      await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+    onError: reportRegisterError,
+  });
+
+  const pendingDocs = (query.data?.documents ?? []).filter(
+    (d) => d.blockchainStatus === 'PENDING'
+  );
+
+  const batchRegister = async () => {
+    if (!wallet.isConnected) {
+      toast('Connect your wallet, then register all pending documents.', 'warning');
+      return;
+    }
+    if (pendingDocs.length === 0) return;
+    let done = 0;
+    for (const doc of pendingDocs) {
+      try {
+        await registerMutation.mutateAsync(doc);
+        done++;
+      } catch {
+        break;
+      }
+    }
+    toast(
+      `Registered ${done} of ${pendingDocs.length} pending document${pendingDocs.length === 1 ? '' : 's'}.`,
+      done === pendingDocs.length ? 'success' : 'warning'
+    );
+  };
+
   const updateParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
@@ -102,9 +169,21 @@ export const DocumentsPage = () => {
             className="input-base pl-9"
           />
         </form>
-        <Link to="/upload">
-          <Button icon={<Upload className="h-4 w-4" />}>Upload Document</Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          {pendingDocs.length > 0 && (
+            <Button
+              variant="outline"
+              icon={<Zap className="h-4 w-4" />}
+              disabled={registerMutation.isPending}
+              onClick={() => void batchRegister()}
+            >
+              Register All Pending ({pendingDocs.length})
+            </Button>
+          )}
+          <Link to="/upload">
+            <Button icon={<Upload className="h-4 w-4" />}>Upload Document</Button>
+          </Link>
+        </div>
       </div>
 
       {/* Filters */}
@@ -186,6 +265,11 @@ export const DocumentsPage = () => {
                           <IconAction title="View details" onClick={() => setDetailId(doc._id)}>
                             <Eye className="h-4 w-4" />
                           </IconAction>
+                          {doc.blockchainStatus === 'PENDING' && (
+                            <IconAction title="Register on blockchain" onClick={() => registerMutation.mutate(doc)}>
+                              <Zap className="h-4 w-4" />
+                            </IconAction>
+                          )}
                           {doc.transactionHash && (
                             <IconAction title="Blockchain Receipt" onClick={() => setDetailId(doc._id)}>
                               <Link2 className="h-4 w-4" />
@@ -232,6 +316,11 @@ export const DocumentsPage = () => {
                     <StatusBadge status={doc.blockchainStatus} />
                     <VerificationBadge status={doc.verificationStatus} />
                     <span className="ml-auto flex items-center gap-0.5">
+                      {doc.blockchainStatus === 'PENDING' && (
+                        <IconAction title="Register on blockchain" onClick={() => registerMutation.mutate(doc)}>
+                          <Zap className="h-4 w-4" />
+                        </IconAction>
+                      )}
                       <IconAction title="Download" onClick={() => downloadMutation.mutate({ id: doc._id, name: doc.originalName })}>
                         <Download className="h-4 w-4" />
                       </IconAction>
@@ -291,6 +380,17 @@ export const DocumentsPage = () => {
               >
                 Download
               </Button>
+              {detail.data?.blockchainStatus === 'PENDING' && (
+                <Button
+                  variant="success"
+                  size="sm"
+                  icon={<Zap className="h-4 w-4" />}
+                  loading={registerMutation.isPending}
+                  onClick={() => registerMutation.mutate(detail.data!)}
+                >
+                  Register
+                </Button>
+              )}
               <Button size="sm" onClick={() => { setDetailId(null); navigate(`/documents/${detail.data!._id}`); }}>
                 Full details
               </Button>

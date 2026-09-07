@@ -45,7 +45,7 @@ declare global {
   }
 }
 
-interface WalletContextValue {
+export interface WalletContextValue {
   account: string | null;
   shortAccount: string;
   chainId: number | null;

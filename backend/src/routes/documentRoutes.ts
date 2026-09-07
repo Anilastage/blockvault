@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   createDocument,
+  registerDocument,
   getDocuments,
   getDocumentById,
   downloadDocument,
@@ -11,7 +12,7 @@ import {
 } from '../controllers/documentController';
 import { documentUpload } from '../middleware/upload';
 import { validate } from '../middleware/validate';
-import { createDocumentSchema, mongoIdParam } from '../validators';
+import { createDocumentSchema, mongoIdParam, registerDocumentTxSchema } from '../validators';
 import { protect } from '../middleware/auth';
 
 const router = Router();
@@ -37,6 +38,12 @@ router.post(
 );
 router.get('/', getDocuments);
 router.get('/:id', validate(mongoIdParam, 'params'), getDocumentById);
+router.post(
+  '/:id/register',
+  validate(mongoIdParam, 'params'),
+  validate(registerDocumentTxSchema),
+  registerDocument
+);
 router.get('/:id/download', validate(mongoIdParam, 'params'), downloadDocument);
 router.get('/:id/downloads', validate(mongoIdParam, 'params'), getDocumentDownloads);
 router.get('/:id/download-code', validate(mongoIdParam, 'params'), getDownloadCode);

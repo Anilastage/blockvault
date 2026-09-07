@@ -1,6 +1,5 @@
 import { useCallback, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Contract, Interface } from "ethers";
 import { useMutation } from "@tanstack/react-query";
 import {
   UploadCloud,
@@ -12,6 +11,7 @@ import {
   CheckCircle2,
   ExternalLink,
   Loader2,
+  Zap,
 } from "lucide-react";
 import {
   sha256File,
@@ -28,55 +28,15 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { formatBytes } from "@/utils/format";
-/** Minimal ABI for the browser-side registration call. Includes the contract's * custom error so ethers can decode the revert reason. */ const ABI =
-  [
-    "function registerDocument(bytes32 documentHash)",
-    "error AlreadyRegistered(bytes32 documentHash, address existingOwner)",
-  ];
-const ABI_IFACE = new Interface(ABI);
-type TxStage =
-  | "idle"
-  | "preparing"
-  | "signing"
-  | "pending"
-  | "confirming"
-  | "confirmed"
-  | "failed";
-/** A registration attempt that the contract rejected on-chain. */ type RegistrationFailure =
-  | { kind: "duplicate"; documentHash: string; existingOwner: string }
-  | { kind: "general"; message: string };
-/** Robustly detects an `AlreadyRegistered` revert regardless of how ethers *  surfaces it (CallException.revert, errorName/errorArgs, or raw revert data). */ function decodeAlreadyRegistered(
-  err: unknown,
-): { documentHash: string; existingOwner: string } | null {
-  const e = err as {
-    revert?: { name?: string; args?: unknown[] };
-    errorName?: string;
-    errorArgs?: unknown[];
-    data?: string;
-  };
-  let args: unknown[] | undefined;
-  if (e.revert?.name === "AlreadyRegistered" && Array.isArray(e.revert.args)) {
-    args = e.revert.args;
-  } else if (
-    e.errorName === "AlreadyRegistered" &&
-    Array.isArray(e.errorArgs)
-  ) {
-    args = e.errorArgs;
-  }
-  if (!args && e.data && e.data.toLowerCase().startsWith("0x01f95aba")) {
-    try {
-      const parsed = ABI_IFACE.parseError(e.data);
-      if (parsed) args = parsed.args;
-    } catch {
-      // fall through with undefined args
-    }
-  }
-  if (!args || args.length < 2) return null;
-  return {
-    documentHash: String(args[0]).toLowerCase().replace(/^0x/, ""),
-    existingOwner: String(args[1]),
-  };
-}
+import {
+  registerHashOnChain,
+  isRegisterFailure,
+  failureMessage,
+  type RegisterFailure,
+  type RegisterStage,
+} from "@/utils/blockchainRegistration";
+
+type TxStage = "idle" | RegisterStage | "confirmed" | "failed";
 const STAGES: Array<{ key: TxStage; label: string }> = [
   { key: "preparing", label: "Preparing transaction" },
   { key: "signing", label: "Signing and submitting transaction" },
@@ -93,10 +53,11 @@ export const UploadPage = () => {
   const [hash, setHash] = useState("");
   const [hashing, setHashing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [autoRegister, setAutoRegister] = useState(true);
   const [stage, setStage] = useState<TxStage>("idle");
   const [txHash, setTxHash] = useState("");
   const [blockNumber, setBlockNumber] = useState<number | undefined>();
-  const [failure, setFailure] = useState<RegistrationFailure | null>(null);
+  const [failure, setFailure] = useState<RegisterFailure | null>(null);
   const selectFile = useCallback(
     async (selected: File | null | undefined) => {
       if (!selected) return;
@@ -109,7 +70,9 @@ export const UploadPage = () => {
       setHash("");
       setStage("idle");
       setTxHash("");
+      setBlockNumber(undefined);
       setFailure(null);
+      setAutoRegister(true);
       setHashing(true);
       try {
         const digest = await sha256File(selected);
@@ -124,7 +87,13 @@ export const UploadPage = () => {
     [toast],
   );
   const saveDocument = useMutation({
-    mutationFn: () =>
+    mutationFn: ({
+      transactionHash,
+      blockNumber: txBlockNumber,
+    }: {
+      transactionHash?: string;
+      blockNumber?: number;
+    }) =>
       documentService.create({
         file: file!,
         originalName: file!.name,
@@ -132,11 +101,16 @@ export const UploadPage = () => {
         fileSize: file!.size,
         mimeType: file!.type || "application/octet-stream",
         sha256Hash: hash,
-        transactionHash: txHash,
-        blockNumber,
+        transactionHash,
+        blockNumber: txBlockNumber,
       }),
-    onSuccess: () => {
-      toast("Document registered on the blockchain successfully!", "success");
+    onSuccess: (_data, variables) => {
+      toast(
+        variables.transactionHash
+          ? "Document registered on the blockchain successfully!"
+          : "Document uploaded. Register it on the blockchain whenever you're ready.",
+        "success"
+      );
       setTimeout(() => navigate("/documents"), 1200);
     },
     onError: (err) => {
@@ -146,80 +120,53 @@ export const UploadPage = () => {
   });
   const registerOnChain = async () => {
     if (!file || !hash) return;
-    if (!wallet.isConnected) {
-      toast("Please connect your wallet first.", "warning");
-      return;
-    }
-    if (!wallet.contractAddress) {
-      toast(
-        'The smart contract is not deployed yet. Run "npm run deploy:local" in the blockchain workspace and set CONTRACT_ADDRESS in backend/.env.',
-        "error",
-        "Contract not configured",
-      );
-      return;
-    }
-    if (!wallet.isCorrectNetwork) {
-      toast("Your wallet is connected to the wrong network.", "warning");
-      await wallet.switchToExpectedNetwork();
-      return;
-    }
     setTxHash("");
     try {
-      // 1-2: prepare + sign
-      setStage("preparing");
-      const signer = await wallet.getSigner(); // Guard: make sure the contract is actually deployed on the network the
-      // wallet is connected to. Chain IDs are reused across networks (e.g.
-      // GoChain Testnet and Hardhat Local are both 31337), so a matching chain
-      // ID alone does not mean the contract exists here — without this check
-      // the transaction would only fail after being broadcast.
-      const deployedCode = await signer.provider?.getCode(
-        wallet.contractAddress,
+      const { transactionHash, blockNumber: block } = await registerHashOnChain(
+        wallet,
+        { hash, originalName: file.name },
+        (s) => setStage(s)
       );
-      if (!deployedCode || deployedCode === "0x") {
-        setStage("failed");
-        toast(
-          `The BlockVault contract (${wallet.contractAddress}) is not deployed on the connected network (${blockchainService.networkName(wallet.chainId)}, chain ID ${wallet.chainId}). Deploy it with "npm run deploy:local" and set CONTRACT_ADDRESS in backend/.env, then connect the wallet again.`,
-          "error",
-          "Contract not found on this network",
-        );
-        return;
-      }
-      const contract = new Contract(wallet.contractAddress, ABI, signer);
-      setStage("signing");
-      const bytes32 = ("0x" + hash.toLowerCase()) as `0x${string}`;
-      const tx = await contract.registerDocument(bytes32); // 3: submitted
-      setStage("pending");
-      setTxHash(tx.hash); // 4: confirming
-      setStage("confirming");
-      const receipt = await tx.wait();
-      if (receipt.status !== 1) {
-        setStage("failed");
-        toast("The transaction was reverted by the smart contract.", "error");
-        return;
-      } // 5: confirmed
-      setBlockNumber(receipt.blockNumber);
+      setTxHash(transactionHash);
+      setBlockNumber(block);
       setStage("confirmed");
-      saveDocument.mutate();
+      saveDocument.mutate({ transactionHash, blockNumber: block });
     } catch (err) {
       setStage("failed");
-      const dup = decodeAlreadyRegistered(err);
-      if (dup) {
-        setFailure({
-          kind: "duplicate",
-          documentHash: dup.documentHash,
-          existingOwner: dup.existingOwner,
-        });
-        if (dup.documentHash && dup.documentHash !== hash.toLowerCase()) {
+      if (!isRegisterFailure(err)) {
+        setFailure({ kind: "general", message: getApiErrorMessage(err) });
+        toast(getApiErrorMessage(err), "error", "Registration failed");
+        return;
+      }
+      if (err.kind === "duplicate") {
+        setFailure(err);
+        if (err.documentHash && err.documentHash !== hash.toLowerCase()) {
           toast(
-            `This document was previously registered with a different hash (${dup.documentHash.slice(0, 10)}…). The exact digest you uploaded is already on-chain.`,
+            `This document was previously registered with a different hash (${err.documentHash.slice(0, 10)}…). The exact digest you uploaded is already on-chain.`,
             "error",
-            "Already registered",
+            "Already registered"
           );
         }
         return;
       }
-      setFailure({ kind: "general", message: getApiErrorMessage(err) });
+      if (err.kind === "network") {
+        toast("Your wallet is connected to the wrong network.", "warning");
+        setStage("idle");
+        void wallet.switchToExpectedNetwork();
+        return;
+      }
+      setFailure(err);
+      if (err.kind === "contract") toast(err.message, "error", "Contract not configured");
+      else toast(err.message, "error", "Registration failed");
     }
+  };
+  const uploadOnly = () => {
+    if (!file || !hash) return;
+    saveDocument.mutate({ transactionHash: undefined, blockNumber: undefined });
+  };
+  const submit = () => {
+    if (autoRegister) void registerOnChain();
+    else uploadOnly();
   };
   const busy =
     stage === "preparing" ||
@@ -343,8 +290,44 @@ export const UploadPage = () => {
               </p>
             )}{" "}
           </div>{" "}
+          {/* Auto-register toggle */}{" "}
+          <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-4">
+            {" "}
+            <div className="flex min-w-0 items-start gap-3">
+              {" "}
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-50">
+                {" "}
+                <Zap className="h-4 w-4 text-primary-500" />{" "}
+              </span>{" "}
+              <div className="min-w-0">
+                {" "}
+                <p className="text-sm font-semibold text-dark">
+                  Register on blockchain after upload{" "}
+                </p>{" "}
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {" "}
+                  {autoRegister
+                    ? "Your wallet will sign a transaction that anchors this document's fingerprint on-chain."
+                    : "The document is saved as Pending. You can register it on-chain later from the Documents page."}{" "}
+                </p>{" "}
+              </div>{" "}
+            </div>{" "}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoRegister}
+              disabled={busy || saveDocument.isPending}
+              onClick={() => setAutoRegister((v) => !v)}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-60 ${autoRegister ? "bg-primary-500" : "bg-slate-300"}`}
+            >
+              {" "}
+              <span
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${autoRegister ? "left-[22px]" : "left-0.5"}`}
+              />{" "}
+            </button>{" "}
+          </div>{" "}
           {/* Wallet status */}{" "}
-          {!wallet.isConnected && (
+          {autoRegister && !wallet.isConnected && (
             <div className="mt-4 flex flex-col items-start gap-3 rounded-xl border border-warning-100 bg-warning-100/40 p-4 sm:flex-row sm:items-center sm:justify-between">
               {" "}
               <div className="flex items-start gap-2.5">
@@ -367,7 +350,7 @@ export const UploadPage = () => {
               </Button>{" "}
             </div>
           )}{" "}
-          {wallet.isConnected && !wallet.isCorrectNetwork && (
+          {autoRegister && wallet.isConnected && !wallet.isCorrectNetwork && (
             <div className="mt-4 flex flex-col items-start gap-3 rounded-xl border border-danger-100 bg-danger-100/40 p-4 sm:flex-row sm:items-center sm:justify-between">
               {" "}
               <div className="flex items-start gap-2.5">
@@ -476,11 +459,11 @@ export const UploadPage = () => {
                 !file || hashing || !hash || busy || stage === "confirmed"
               }
               loading={saveDocument.isPending}
-              onClick={registerOnChain}
-              icon={<Fingerprint className="h-4 w-4" />}
+              onClick={submit}
+              icon={autoRegister ? <Fingerprint className="h-4 w-4" /> : <UploadCloud className="h-4 w-4" />}
             >
               {" "}
-              Register on Blockchain{" "}
+              {autoRegister ? "Register on Blockchain" : "Upload Document"}{" "}
             </Button>{" "}
           </div>{" "}
         </Card>
@@ -609,7 +592,7 @@ export const UploadPage = () => {
                       The transaction could not be submitted.
                     </p>{" "}
                     <p className="mt-1 text-sm text-slate-600">
-                      {failure.message}
+                      {failureMessage(failure)}
                     </p>{" "}
                   </div>{" "}
                 </div>{" "}

@@ -11,6 +11,7 @@ import {
   Blocks,
   History as HistoryIcon,
   ScrollText,
+  Zap,
 } from 'lucide-react';
 import { documentService } from '@/services/documentService';
 import { accessService } from '@/services/accessService';
@@ -23,15 +24,20 @@ import { HashDisplay } from '@/components/ui/HashDisplay';
 import { Spinner } from '@/components/ui/Feedback';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ShareDownloadCode } from '@/components/documents/ShareDownloadCode';
+import { CertificateModal, type CertificateData } from '@/components/documents/CertificateModal';
 import { useToast } from '@/context/ToastContext';
+import { useWallet } from '@/context/WalletContext';
 import { formatBytes, formatDate, formatDateTime } from '@/utils/format';
+import { registerHashOnChain, isRegisterFailure, failureMessage } from '@/utils/blockchainRegistration';
 
 export const DocumentDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const toast = useToast();
+  const wallet = useWallet();
   const queryClient = useQueryClient();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [certOpen, setCertOpen] = useState(false);
 
   const document = useQuery({
     queryKey: ['document', id],
@@ -55,6 +61,49 @@ export const DocumentDetailPage = () => {
     queryKey: ['blockchain', 'config'],
     queryFn: blockchainService.config,
     staleTime: Infinity,
+  });
+
+  // Enrich the certificate with the on-chain owner wallet + timestamp.
+  const chainForCert = useQuery({
+    queryKey: ['chain-record', document.data?.sha256Hash],
+    queryFn: () => blockchainService.getByHash(document.data!.sha256Hash),
+    enabled: certOpen && document.data?.blockchainStatus === 'CONFIRMED' && !!document.data?.sha256Hash,
+    retry: false,
+  });
+
+  const registerMutation = useMutation({
+    mutationFn: async () => {
+      const { transactionHash, blockNumber } = await registerHashOnChain(wallet, {
+        hash: document.data!.sha256Hash,
+        originalName: document.data!.originalName,
+      });
+      return documentService.register(id!, { transactionHash, blockNumber });
+    },
+    onSuccess: async () => {
+      toast('Document registered on the blockchain.', 'success');
+      await queryClient.invalidateQueries({ queryKey: ['document', id] });
+      await queryClient.invalidateQueries({ queryKey: ['documents'] });
+    },
+    onError: (err) => {
+      if (!isRegisterFailure(err)) {
+        toast(getApiErrorMessage(err), 'error', 'Registration failed');
+        return;
+      }
+      if (err.kind === 'network') {
+        toast('Wrong network. Switch your wallet to the expected network and try again.', 'warning');
+        void wallet.switchToExpectedNetwork();
+        return;
+      }
+      if (err.kind === 'duplicate') {
+        toast(failureMessage(err), 'error', 'Already registered');
+        return;
+      }
+      if (err.kind === 'contract') {
+        toast(err.message, 'error', 'Contract not configured');
+        return;
+      }
+      toast(err.message, 'error', 'Registration failed');
+    },
   });
 
   const deleteMutation = useMutation({
@@ -102,6 +151,24 @@ export const DocumentDetailPage = () => {
     ? blockchainService.explorerTxUrl(config.data?.explorerUrl, doc.transactionHash)
     : null;
 
+  const chain = chainForCert.data;
+  const certData: CertificateData = {
+    documentName: doc.originalName,
+    sha256Hash: doc.sha256Hash,
+    mimeType: doc.mimeType,
+    fileSize: doc.fileSize,
+    ownerWallet: chain?.owner || undefined,
+    blockNumber: chain?.blockNumber ?? doc.blockNumber,
+    transactionHash: chain?.transactionHash ?? doc.transactionHash,
+    registeredAt: chain?.timestamp
+      ? new Date(chain.timestamp * 1000).toISOString()
+      : doc.uploadedAt,
+    contractAddress: doc.contractAddress || config.data?.contractAddress,
+    chainName: config.data ? blockchainService.networkName(config.data.chainId) : undefined,
+    explorerTxUrl: txExplorerUrl,
+    uploadedAt: doc.uploadedAt,
+  };
+
   return (
     <div className="mx-auto max-w-4xl space-y-5 animate-fade-in">
       {/* Header */}
@@ -119,9 +186,19 @@ export const DocumentDetailPage = () => {
           <Button size="sm" variant="outline" loading={download.isPending} onClick={() => download.mutate()} icon={<Download className="h-4 w-4" />}>
             Download
           </Button>
+          {doc.blockchainStatus === 'PENDING' && (
+            <Button size="sm" variant="success" loading={registerMutation.isPending} onClick={() => registerMutation.mutate()} icon={<Zap className="h-4 w-4" />}>
+              Register on Blockchain
+            </Button>
+          )}
           <Link to={`/verify?document=${doc._id}`}>
             <Button size="sm" icon={<ShieldCheck className="h-4 w-4" />}>Verify</Button>
           </Link>
+          {doc.blockchainStatus === 'CONFIRMED' && (
+            <Button size="sm" variant="outline" onClick={() => setCertOpen(true)} icon={<ScrollText className="h-4 w-4" />}>
+              Certificate
+            </Button>
+          )}
           <Button size="sm" variant="danger" onClick={() => setConfirmDelete(true)} icon={<Trash2 className="h-4 w-4" />}>
             Delete
           </Button>
@@ -307,6 +384,8 @@ export const DocumentDetailPage = () => {
         onCancel={() => setConfirmDelete(false)}
         onConfirm={() => deleteMutation.mutate()}
       />
+
+      <CertificateModal open={certOpen} onClose={() => setCertOpen(false)} data={certOpen ? certData : null} />
     </div>
   );
 };

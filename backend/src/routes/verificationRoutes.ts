@@ -2,6 +2,8 @@ import { Router } from 'express';
 import {
   verifyUploadedFile,
   verifyByHash,
+  verifyUploadedFilePublic,
+  verifyByHashPublic,
   getHistory,
   getDocumentVerifications,
   downloadRegisteredDocument,
@@ -12,6 +14,9 @@ import { protect } from '../middleware/auth';
 import { verifyByHashSchema, documentIdParam } from '../validators';
 
 const router = Router();
+
+router.post('/public/upload', documentUpload.single('file'), verifyUploadedFilePublic);
+router.post('/public/hash', validate(verifyByHashSchema), verifyByHashPublic);
 
 router.use(protect);
 

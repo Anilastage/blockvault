@@ -57,6 +57,8 @@ export default function App() {
                   {/* Public */}
                   <Route element={<PublicLayout />}>
                     <Route path="/" element={<LandingPage />} />
+                    <Route path="/verify" element={<VerifyPage />} />
+                    <Route path="/verify/:hash" element={<VerifyPage />} />
                   </Route>
 
                   <Route path="/login" element={<LoginPage />} />
@@ -108,9 +110,6 @@ export default function App() {
                     </Route>
                     <Route path="/share" element={<DashboardLayout title="Share Document" />}>
                       <Route index element={<ShareDocumentPage />} />
-                    </Route>
-                    <Route path="/verify" element={<DashboardLayout title="Verify Document" />}>
-                      <Route index element={<VerifyPage />} />
                     </Route>
                   </Route>
 

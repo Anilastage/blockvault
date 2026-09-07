@@ -36,7 +36,7 @@ interface VerifyOutcome {
 }
 
 const performLookup = async (
-  userId: string,
+  userId: string | undefined,
   documentId: string | undefined,
   calculatedHash: string,
   meta: { ipAddress?: string; userAgent?: string }
@@ -65,7 +65,8 @@ const performLookup = async (
               transactionHash: originalChain.transactionHash,
             },
           };
-          await Verification.create({
+          if (userId) {
+            await Verification.create({
             documentId: doc._id,
             userId,
             calculatedHash,
@@ -78,6 +79,7 @@ const performLookup = async (
             verifiedAt: new Date(),
             ...meta,
           });
+          }
           await DocumentModel.findByIdAndUpdate(doc._id, { verificationStatus: 'MODIFIED' });
           return outcome;
         }
@@ -89,14 +91,16 @@ const performLookup = async (
       calculatedHash,
       chain: { exists: false, owner: '', timestamp: 0, blockNumber: 0 },
     };
-    await Verification.create({
-      documentId,
-      userId,
-      calculatedHash,
-      result: 'NOT_FOUND',
-      verifiedAt: new Date(),
-      ...meta,
-    });
+    if (userId) {
+      await Verification.create({
+        documentId,
+        userId,
+        calculatedHash,
+        result: 'NOT_FOUND',
+        verifiedAt: new Date(),
+        ...meta,
+      });
+    }
     if (documentId) {
       await DocumentModel.findByIdAndUpdate(documentId, { verificationStatus: 'NOT_FOUND' });
     }
@@ -115,6 +119,7 @@ const performLookup = async (
     | null
     | undefined;
   const isOwnedByMe =
+    userId != null &&
     registeredDoc != null &&
     ownerUser?._id != null &&
     String(ownerUser._id) === String(userId);
@@ -122,13 +127,19 @@ const performLookup = async (
   // Notify the owner when a third party verifies a copy of their document.
   if (registeredDoc && ownerUser?._id) {
     try {
-      const verifier = await User.findById(userId).select('fullName email');
+      let verifierName = 'A visitor';
+      let verifierId = '';
+      if (userId) {
+        const verifier = await User.findById(userId).select('fullName email');
+        verifierName = verifier?.fullName ?? 'Someone';
+        verifierId = userId;
+      }
       await notifyDocumentVerified({
         ownerId: String(ownerUser._id),
         documentId: String(registeredDoc._id),
         documentName: registeredDoc.originalName,
-        verifierId: userId,
-        verifierName: verifier?.fullName ?? 'Someone',
+        verifierId,
+        verifierName,
         hash: calculatedHash,
       });
     } catch {
@@ -155,23 +166,27 @@ const performLookup = async (
   const linkedDoc = documentId
     ? await DocumentModel.findOne({
         _id: documentId,
-        $or: [{ sha256Hash: calculatedHash }],
+        sha256Hash: calculatedHash,
       })
-    : await DocumentModel.findOne({ sha256Hash: calculatedHash, userId });
+    : userId
+      ? await DocumentModel.findOne({ sha256Hash: calculatedHash, userId })
+      : null;
 
-  await Verification.create({
-    documentId: linkedDoc?._id ?? documentId,
-    userId,
-    calculatedHash,
-    blockchainHash: calculatedHash,
-    result: 'VERIFIED',
-    transactionHash: chain.transactionHash,
-    blockNumber: chain.blockNumber,
-    ownerWallet: chain.owner.toLowerCase(),
-    registeredAt: new Date(chain.timestamp * 1000),
-    verifiedAt: new Date(),
-    ...meta,
-  });
+  if (userId) {
+    await Verification.create({
+      documentId: linkedDoc?._id ?? documentId,
+      userId,
+      calculatedHash,
+      blockchainHash: calculatedHash,
+      result: 'VERIFIED',
+      transactionHash: chain.transactionHash,
+      blockNumber: chain.blockNumber,
+      ownerWallet: chain.owner.toLowerCase(),
+      registeredAt: new Date(chain.timestamp * 1000),
+      verifiedAt: new Date(),
+      ...meta,
+    });
+  }
   if (linkedDoc) {
     await DocumentModel.findByIdAndUpdate(linkedDoc._id, { verificationStatus: 'VERIFIED' });
   }
@@ -221,6 +236,36 @@ export const verifyByHash = asyncHandler(async (req: Request, res: Response) => 
     metadata: { hash: calculatedHash, result: outcome.result },
     ...clientMeta(req.ip, req.headers['user-agent']),
   });
+
+  res.json({ success: true, message: `Verification complete: ${outcome.result}`, data: outcome });
+});
+
+/**
+ * POST /api/verification/public/upload — same check as verifyUploadedFile but
+ * for unauthenticated visitors. No verification history is recorded and there
+ * is no activity log (there is no user); the on-chain lookup and owner
+ * notification still work so document owners stay informed.
+ */
+export const verifyUploadedFilePublic = asyncHandler(async (req: Request, res: Response) => {
+  const file = req.file;
+  if (!file) throw ApiError.badRequest('A document file is required for verification');
+
+  const documentId = req.body?.documentId as string | undefined;
+  const calculatedHash = await sha256File(file.path);
+  await fs.unlink(file.path).catch(() => undefined);
+
+  const outcome = await performLookup(undefined, documentId, calculatedHash, {});
+
+  res.json({ success: true, message: `Verification complete: ${outcome.result}`, data: outcome });
+});
+
+/** POST /api/verification/public/hash — public version of verifyByHash. */
+export const verifyByHashPublic = asyncHandler(async (req: Request, res: Response) => {
+  const { hash } = req.body as { hash: string };
+  const documentId = req.body?.documentId as string | undefined;
+  const calculatedHash = hash.toLowerCase();
+
+  const outcome = await performLookup(undefined, documentId, calculatedHash, {});
 
   res.json({ success: true, message: `Verification complete: ${outcome.result}`, data: outcome });
 });

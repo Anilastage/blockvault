@@ -7,11 +7,28 @@ export const verificationService = {
     return unwrap<VerifyOutcome>(res.data);
   },
 
+  /** Public, no-auth variant used by the shared verification page. */
+  async verifyByHashPublic(hash: string, documentId?: string): Promise<VerifyOutcome> {
+    const res = await api.post('/verification/public/hash', { hash, documentId });
+    return unwrap<VerifyOutcome>(res.data);
+  },
+
   async verifyUploadedFile(file: File, documentId?: string): Promise<VerifyOutcome> {
     const form = new FormData();
     form.append('file', file);
     if (documentId) form.append('documentId', documentId);
     const res = await api.post('/verification/upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return unwrap<VerifyOutcome>(res.data);
+  },
+
+  /** Public, no-auth variant used by the shared verification page. */
+  async verifyUploadedFilePublic(file: File, documentId?: string): Promise<VerifyOutcome> {
+    const form = new FormData();
+    form.append('file', file);
+    if (documentId) form.append('documentId', documentId);
+    const res = await api.post('/verification/public/upload', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     return unwrap<VerifyOutcome>(res.data);

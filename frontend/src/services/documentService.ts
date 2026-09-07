@@ -25,7 +25,7 @@ export const documentService = {
     return unwrap<{ document: DocumentItem }>(res.data).document;
   },
 
-  /** Registers an already-blockchain-confirmed document (multipart). */
+  /** Saves an uploaded document. Omitting transactionHash stores it as PENDING. */
   async create(payload: {
     file: File;
     originalName: string;
@@ -33,7 +33,7 @@ export const documentService = {
     fileSize: number;
     mimeType: string;
     sha256Hash: string;
-    transactionHash: string;
+    transactionHash?: string;
     blockNumber?: number;
   }): Promise<DocumentItem> {
     const form = new FormData();
@@ -43,13 +43,22 @@ export const documentService = {
     form.append('fileSize', String(payload.fileSize));
     form.append('mimeType', payload.mimeType);
     form.append('sha256Hash', payload.sha256Hash);
-    form.append('transactionHash', payload.transactionHash);
+    if (payload.transactionHash) form.append('transactionHash', payload.transactionHash);
     if (payload.blockNumber !== undefined) {
       form.append('blockNumber', String(payload.blockNumber));
     }
     const res = await api.post('/documents', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
+    return unwrap<{ document: DocumentItem }>(res.data).document;
+  },
+
+  /** Confirms a PENDING document once its hash has been registered on-chain. */
+  async register(
+    id: string,
+    payload: { transactionHash: string; blockNumber?: number }
+  ): Promise<DocumentItem> {
+    const res = await api.post(`/documents/${id}/register`, payload);
     return unwrap<{ document: DocumentItem }>(res.data).document;
   },
 

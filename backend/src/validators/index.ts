@@ -54,6 +54,13 @@ export const createDocumentSchema = z.object({
   fileSize: z.number().int().positive().max(10 * 1024 * 1024),
   mimeType: z.string().trim().min(3).max(150),
   sha256Hash: sha256,
+  // When omitted the document is saved as PENDING and can be registered later
+  // via POST /api/documents/:id/register.
+  transactionHash: txHash.optional(),
+  blockNumber: z.number().int().nonnegative().optional(),
+});
+
+export const registerDocumentTxSchema = z.object({
   transactionHash: txHash,
   blockNumber: z.number().int().nonnegative().optional(),
 });
