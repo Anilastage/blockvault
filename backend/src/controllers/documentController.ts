@@ -32,12 +32,15 @@ const buildSearchFilter = (search: string | undefined) => {
  *    submitted transactionHash is independently verified server-side.
  *  - Pending: no transactionHash is supplied; the document is saved as PENDING
  *    and can be registered on-chain later via POST /api/documents/:id/register.
+ *
+ * When `parentId` is provided the new document is recorded as the next revision
+ * of an existing (on-chain confirmed) document, keeping the full version chain.
  */
 export const createDocument = asyncHandler(async (req: Request, res: Response) => {
   const file = req.file;
   if (!file) throw ApiError.badRequest('Document file is required');
 
-  const { originalName, fileSize, mimeType, sha256Hash, transactionHash, blockNumber } =
+  const { originalName, fileSize, mimeType, sha256Hash, transactionHash, blockNumber, parentId } =
     req.body as {
       originalName: string;
       fileSize: number;
@@ -45,6 +48,7 @@ export const createDocument = asyncHandler(async (req: Request, res: Response) =
       sha256Hash: string;
       transactionHash?: string;
       blockNumber?: number;
+      parentId?: string;
     };
 
   // 1. Hash must match the real file bytes.
@@ -74,6 +78,36 @@ export const createDocument = asyncHandler(async (req: Request, res: Response) =
     validatedTx = validation.details;
   }
 
+  // 3. Optional new-version linkage: verify the parent exists, belongs to this
+  // user, and is already confirmed on-chain before a newer revision can exist.
+  let family: { familyId?: string; version: number; previousVersionId?: string; previousVersionHash?: string } = {
+    version: 1,
+  };
+  if (parentId) {
+    const parent = await DocumentModel.findById(parentId);
+    if (!parent) {
+      await fs.unlink(file.path).catch(() => undefined);
+      throw ApiError.notFound('The document being revised was not found');
+    }
+    const isParentOwner = String(parent.userId) === String(req.user!.id);
+    if (!isParentOwner && req.user!.role !== 'ADMIN') {
+      await fs.unlink(file.path).catch(() => undefined);
+      throw ApiError.forbidden('You do not have access to this document');
+    }
+    if (parent.blockchainStatus !== 'CONFIRMED') {
+      await fs.unlink(file.path).catch(() => undefined);
+      throw ApiError.badRequest(
+        'Register the current version on the blockchain before uploading a new revision.'
+      );
+    }
+    family = {
+      familyId: String(parent.familyId ?? parent._id),
+      version: (parent.version ?? 1) + 1,
+      previousVersionId: String(parent._id),
+      previousVersionHash: parent.sha256Hash,
+    };
+  }
+
   const document = await DocumentModel.create({
     userId: req.user!.id,
     originalName,
@@ -90,6 +124,10 @@ export const createDocument = asyncHandler(async (req: Request, res: Response) =
     uploadedAt: new Date(),
     blockchainStatus: validatedTx ? 'CONFIRMED' : 'PENDING',
     verificationStatus: validatedTx ? 'VERIFIED' : 'UNVERIFIED',
+    familyId: family.familyId,
+    version: family.version > 1 ? family.version : undefined,
+    previousVersionId: family.previousVersionId,
+    previousVersionHash: family.previousVersionHash,
   }).catch(async (err: Error) => {
     await fs.unlink(file.path).catch(() => undefined);
     throw err;
@@ -97,13 +135,15 @@ export const createDocument = asyncHandler(async (req: Request, res: Response) =
 
   await logActivity({
     userId: String(req.user!.id),
-    action: 'DOCUMENT_UPLOAD',
+    action: family.previousVersionId ? 'DOCUMENT_NEW_VERSION' : 'DOCUMENT_UPLOAD',
     entityType: 'DOCUMENT',
     entityId: String(document._id),
     metadata: {
       name: originalName,
       hash: computedHash,
       transactionHash,
+      version: family.version,
+      previousVersionId: family.previousVersionId,
     },
     ...clientMeta(req.ip, req.headers['user-agent']),
   });
@@ -121,8 +161,12 @@ export const createDocument = asyncHandler(async (req: Request, res: Response) =
   res.status(201).json({
     success: true,
     message: validatedTx
-      ? 'Document registered on the blockchain successfully'
-      : 'Document uploaded. It will appear as pending until you register it on the blockchain.',
+      ? family.previousVersionId
+        ? `Version ${family.version} registered on the blockchain successfully`
+        : 'Document registered on the blockchain successfully'
+      : family.previousVersionId
+        ? `Version ${family.version} uploaded. Register it on the blockchain when you're ready.`
+        : 'Document uploaded. It will appear as pending until you register it on the blockchain.',
     data: { document },
   });
 });
@@ -231,6 +275,49 @@ export const getDocumentById = asyncHandler(async (req: Request, res: Response) 
   }
 
   res.json({ success: true, message: 'Document retrieved', data: { document } });
+});
+
+/**
+ * GET /api/documents/:id/versions
+ * Returns the full version history of a document family, oldest first, with the
+ * current (latest) revision flagged. Owner or admin only.
+ */
+export const getDocumentVersions = asyncHandler(async (req: Request, res: Response) => {
+  const document = await DocumentModel.findById(req.params.id);
+  if (!document) throw ApiError.notFound('Document not found');
+
+  const isOwner = String(document.userId) === String(req.user!.id);
+  if (!isOwner && req.user!.role !== 'ADMIN') {
+    throw ApiError.forbidden('You do not have access to this document');
+  }
+
+  const familyId = String(document.familyId ?? document._id);
+  const familyDocs = await DocumentModel.find({
+    $or: [{ _id: familyId }, { familyId }],
+  })
+    .sort({ version: 1 })
+    .populate('userId', 'fullName email');
+
+  let maxVersion = 1;
+  for (const d of familyDocs) {
+    maxVersion = Math.max(maxVersion, d.version ?? 1);
+  }
+
+  const versions = familyDocs.map((d) => {
+    const version = d.version ?? 1;
+    return {
+      document: d,
+      version,
+      isCurrent: version === maxVersion,
+      isSuperseded: version < maxVersion,
+    };
+  });
+
+  res.json({
+    success: true,
+    message: 'Document versions retrieved',
+    data: { familyId, currentVersion: maxVersion, versions },
+  });
 });
 
 export const downloadDocument = asyncHandler(async (req: Request, res: Response) => {

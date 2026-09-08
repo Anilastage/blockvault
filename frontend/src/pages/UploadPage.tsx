@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { useMutation } from "@tanstack/react-query";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   UploadCloud,
   FileText,
@@ -12,6 +12,7 @@ import {
   ExternalLink,
   Loader2,
   Zap,
+  GitBranch,
 } from "lucide-react";
 import {
   sha256File,
@@ -27,6 +28,7 @@ import { getApiErrorMessage } from "@/services/api";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { Spinner } from "@/components/ui/Feedback";
 import { formatBytes } from "@/utils/format";
 import {
   registerHashOnChain,
@@ -49,6 +51,15 @@ export const UploadPage = () => {
   const toast = useToast();
   const wallet = useWallet();
   const inputRef = useRef<HTMLInputElement>(null);
+  const [searchParams] = useSearchParams();
+  const parentId = searchParams.get("parent") ?? undefined;
+  const parentQuery = useQuery({
+    queryKey: ["document", parentId],
+    queryFn: () => documentService.get(parentId!),
+    enabled: !!parentId,
+  });
+  const parent = parentQuery.data;
+  const nextVersion = (parent?.version ?? 1) + 1;
   const [file, setFile] = useState<File | null>(null);
   const [hash, setHash] = useState("");
   const [hashing, setHashing] = useState(false);
@@ -103,15 +114,20 @@ export const UploadPage = () => {
         sha256Hash: hash,
         transactionHash,
         blockNumber: txBlockNumber,
+        parentId,
       }),
-    onSuccess: (_data, variables) => {
+    onSuccess: (data, variables) => {
       toast(
         variables.transactionHash
-          ? "Document registered on the blockchain successfully!"
-          : "Document uploaded. Register it on the blockchain whenever you're ready.",
+          ? parentId
+            ? `Version ${nextVersion} registered on the blockchain successfully!`
+            : "Document registered on the blockchain successfully!"
+          : parentId
+            ? `Version ${nextVersion} uploaded. Register it on the blockchain whenever you're ready.`
+            : "Document uploaded. Register it on the blockchain whenever you're ready.",
         "success"
       );
-      setTimeout(() => navigate("/documents"), 1200);
+      setTimeout(() => navigate(parentId ? `/documents/${data._id}` : "/documents"), 1200);
     },
     onError: (err) => {
       toast(getApiErrorMessage(err), "error", "Could not save document");
@@ -180,6 +196,51 @@ export const UploadPage = () => {
   return (
     <div className="mx-auto max-w-3xl space-y-6 animate-fade-in">
       {" "}
+      {parentId &&
+        (parentQuery.isLoading ? (
+          <Card className="flex items-center gap-3 p-5">
+            {" "}
+            <Spinner className="h-4 w-4" /> Loading document being revised…
+          </Card>
+        ) : parent && parent.blockchainStatus === "CONFIRMED" ? (
+          <Card className="border-secondary-200 bg-secondary-100/30 p-5">
+            {" "}
+            <div className="flex items-start gap-3">
+              {" "}
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-secondary-500/10">
+                {" "}
+                <GitBranch className="h-4 w-4 text-secondary-500" />{" "}
+              </span>{" "}
+              <div className="min-w-0 text-sm">
+                {" "}
+                <p className="font-semibold text-dark">
+                  Uploading a new version of {parent.originalName}
+                </p>{" "}
+                <p className="mt-1 text-xs text-slate-600">
+                  This file will be saved as version {nextVersion}. The current
+                  version ({parent.version ?? 1}) stays on-chain, so the full
+                  history of this document family remains verifiable.{" "}
+                </p>{" "}
+              </div>{" "}
+            </div>{" "}
+          </Card>
+        ) : (
+          <Card className="flex items-start gap-3 border-danger-100 bg-danger-100/40 p-5">
+            {" "}
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-danger" />{" "}
+            <p className="text-sm text-slate-600">
+              The document being revised could not be found or is not yet
+              registered on the blockchain. Register it first, then upload a new
+              version.{" "}
+              <button
+                onClick={() => navigate("/documents")}
+                className="font-medium text-primary-600 underline underline-offset-2"
+              >
+                Back to Documents
+              </button>
+            </p>{" "}
+          </Card>
+        ))}
       {/* Drop zone */}{" "}
       <Card className="overflow-hidden">
         {" "}

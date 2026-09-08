@@ -17,6 +17,12 @@ export interface IDocument extends MongoDocument {
   uploadedAt: Date;
   blockchainStatus: BlockchainStatus;
   verificationStatus: VerificationStatus;
+  /** id of the first document in the version family; absent for standalone documents. */
+  familyId?: mongoose.Types.ObjectId;
+  /** 1-based revision number within the family. */
+  version?: number;
+  previousVersionId?: mongoose.Types.ObjectId;
+  previousVersionHash?: string;
 }
 
 const documentSchema = new Schema<IDocument>(
@@ -46,11 +52,16 @@ const documentSchema = new Schema<IDocument>(
       default: 'UNVERIFIED',
       index: true,
     },
+    familyId: { type: Schema.Types.ObjectId, ref: 'Document', index: true },
+    version: { type: Number },
+    previousVersionId: { type: Schema.Types.ObjectId, ref: 'Document' },
+    previousVersionHash: { type: String },
   },
   { timestamps: true }
 );
 
 documentSchema.index({ originalName: 'text', sha256Hash: 'text', transactionHash: 'text' });
+documentSchema.index({ familyId: 1, version: 1 });
 
 export const DocumentModel: Model<IDocument> = mongoose.model<IDocument>(
   'Document',

@@ -250,8 +250,15 @@ export const DocumentsPage = () => {
                           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-50 font-mono text-[10px] font-bold text-primary-500">
                             {fileExtension(doc.originalName).slice(0, 4)}
                           </span>
-                          <span className="truncate font-medium text-dark hover:text-primary-600">
-                            {doc.originalName}
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span className="truncate font-medium text-dark hover:text-primary-600">
+                              {doc.originalName}
+                            </span>
+                            {(doc.version ?? 1) > 1 && (
+                              <span className="inline-flex shrink-0 items-center rounded-full bg-secondary-500/10 px-1.5 py-0.5 text-[10px] font-bold text-secondary-500">
+                                v{doc.version}
+                              </span>
+                            )}
                           </span>
                         </button>
                       </td>
@@ -304,7 +311,14 @@ export const DocumentsPage = () => {
                   <button className="w-full text-left" onClick={() => setDetailId(doc._id)}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-dark">{doc.originalName}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-semibold text-dark">{doc.originalName}</p>
+                          {(doc.version ?? 1) > 1 && (
+                            <span className="inline-flex shrink-0 items-center rounded-full bg-secondary-500/10 px-1.5 py-0.5 text-[10px] font-bold text-secondary-500">
+                              v{doc.version}
+                            </span>
+                          )}
+                        </div>
                         <p className="mt-0.5 text-xs text-slate-400">
                           {formatBytes(doc.fileSize)} · {formatDate(doc.uploadedAt)}
                         </p>

@@ -48,6 +48,17 @@ export interface DocumentItem {
   uploadedAt: string;
   blockchainStatus: BlockchainStatus;
   verificationStatus: VerificationStatus;
+  familyId?: string;
+  version?: number;
+  previousVersionId?: string;
+  previousVersionHash?: string;
+}
+
+export interface DocumentVersion {
+  document: DocumentItem;
+  version: number;
+  isCurrent: boolean;
+  isSuperseded: boolean;
 }
 
 export interface Pagination {

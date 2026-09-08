@@ -4,6 +4,7 @@ import {
   registerDocument,
   getDocuments,
   getDocumentById,
+  getDocumentVersions,
   downloadDocument,
   getDocumentDownloads,
   getDownloadCode,
@@ -38,6 +39,7 @@ router.post(
 );
 router.get('/', getDocuments);
 router.get('/:id', validate(mongoIdParam, 'params'), getDocumentById);
+router.get('/:id/versions', validate(mongoIdParam, 'params'), getDocumentVersions);
 router.post(
   '/:id/register',
   validate(mongoIdParam, 'params'),

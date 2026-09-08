@@ -2,6 +2,7 @@ import { api, unwrap, getBlobError, saveBlob } from './api';
 import type {
   DocumentItem,
   DocumentListResponse,
+  DocumentVersion,
   VerificationRecord,
 } from '@/types';
 
@@ -25,7 +26,8 @@ export const documentService = {
     return unwrap<{ document: DocumentItem }>(res.data).document;
   },
 
-  /** Saves an uploaded document. Omitting transactionHash stores it as PENDING. */
+  /** Saves an uploaded document. Omitting transactionHash stores it as PENDING.
+   * Setting parentId records it as the next revision of an existing document. */
   async create(payload: {
     file: File;
     originalName: string;
@@ -35,6 +37,7 @@ export const documentService = {
     sha256Hash: string;
     transactionHash?: string;
     blockNumber?: number;
+    parentId?: string;
   }): Promise<DocumentItem> {
     const form = new FormData();
     form.append('file', payload.file);
@@ -47,10 +50,23 @@ export const documentService = {
     if (payload.blockNumber !== undefined) {
       form.append('blockNumber', String(payload.blockNumber));
     }
+    if (payload.parentId) form.append('parentId', payload.parentId);
     const res = await api.post('/documents', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     return unwrap<{ document: DocumentItem }>(res.data).document;
+  },
+
+  /** Full version history of a document family, oldest first. */
+  async versions(id: string): Promise<{
+    familyId: string;
+    currentVersion: number;
+    versions: DocumentVersion[];
+  }> {
+    const res = await api.get(`/documents/${id}/versions`);
+    return unwrap<{ familyId: string; currentVersion: number; versions: DocumentVersion[] }>(
+      res.data
+    );
   },
 
   /** Confirms a PENDING document once its hash has been registered on-chain. */

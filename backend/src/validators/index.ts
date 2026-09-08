@@ -58,6 +58,9 @@ export const createDocumentSchema = z.object({
   // via POST /api/documents/:id/register.
   transactionHash: txHash.optional(),
   blockNumber: z.number().int().nonnegative().optional(),
+  // Uploads a new revision of an existing document; the parent must already be
+  // registered on-chain. Links the new document into the family/version chain.
+  parentId: objectId.optional(),
 });
 
 export const registerDocumentTxSchema = z.object({
