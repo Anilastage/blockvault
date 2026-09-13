@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import type { Request, Response } from 'express';
 import { DocumentModel } from '../models/Document';
+import { FolderModel } from '../models/Folder';
 import { DownloadRecord } from '../models/DownloadRecord';
 import { DownloadCode } from '../models/DownloadCode';
 import { AccessRequest } from '../models/AccessRequest';
@@ -22,8 +23,17 @@ const buildSearchFilter = (search: string | undefined) => {
   if (!search) return {};
   const rx = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
   return {
-    $or: [{ originalName: rx }, { sha256Hash: rx }, { transactionHash: rx }],
+    $or: [{ originalName: rx }, { sha256Hash: rx }, { transactionHash: rx }, { tags: rx }],
   };
+};
+
+const parseTagFilter = (tag: string | string[] | undefined): string[] | undefined => {
+  if (!tag) return undefined;
+  const raw = Array.isArray(tag) ? tag : [tag];
+  const tags = raw
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length > 0 && t.length <= 24);
+  return tags.length > 0 ? tags : undefined;
 };
 
 /**
@@ -40,7 +50,7 @@ export const createDocument = asyncHandler(async (req: Request, res: Response) =
   const file = req.file;
   if (!file) throw ApiError.badRequest('Document file is required');
 
-  const { originalName, fileSize, mimeType, sha256Hash, transactionHash, blockNumber, parentId } =
+  const { originalName, fileSize, mimeType, sha256Hash, transactionHash, blockNumber, parentId, folderId, tags } =
     req.body as {
       originalName: string;
       fileSize: number;
@@ -49,6 +59,8 @@ export const createDocument = asyncHandler(async (req: Request, res: Response) =
       transactionHash?: string;
       blockNumber?: number;
       parentId?: string;
+      folderId?: string;
+      tags?: string[];
     };
 
   // 1. Hash must match the real file bytes.
@@ -108,6 +120,18 @@ export const createDocument = asyncHandler(async (req: Request, res: Response) =
     };
   }
 
+    // 4. Validate folder ownership and normalise tags.
+  let resolvedFolderId: string | null = null;
+  if (folderId) {
+    const folder = await FolderModel.findOne({ _id: folderId, userId: req.user!.id });
+    if (!folder) {
+      await fs.unlink(file.path).catch(() => undefined);
+      throw ApiError.badRequest('The specified folder does not exist or does not belong to you');
+    }
+    resolvedFolderId = String(folder._id);
+  }
+  const normalisedTags = Array.from(new Set((tags ?? []).map((t) => t.trim().toLowerCase()))).filter(Boolean);
+
   const document = await DocumentModel.create({
     userId: req.user!.id,
     originalName,
@@ -128,6 +152,8 @@ export const createDocument = asyncHandler(async (req: Request, res: Response) =
     version: family.version > 1 ? family.version : undefined,
     previousVersionId: family.previousVersionId,
     previousVersionHash: family.previousVersionHash,
+    folderId: resolvedFolderId,
+    tags: normalisedTags.length > 0 ? normalisedTags : undefined,
   }).catch(async (err: Error) => {
     await fs.unlink(file.path).catch(() => undefined);
     throw err;
@@ -243,6 +269,16 @@ export const getDocuments = asyncHandler(async (req: Request, res: Response) => 
   const status = req.query.status as string | undefined;
   if (status && status !== 'ALL') filter.blockchainStatus = status;
 
+  const folderId = req.query.folderId as string | undefined;
+  if (folderId === 'unfiled') {
+    filter.folderId = { $in: [null, undefined] };
+  } else if (folderId) {
+    filter.folderId = folderId;
+  }
+
+  const tags = parseTagFilter(req.query.tag as string | string[] | undefined);
+  if (tags) filter.tags = { $all: tags };
+
   const [docs, total] = await Promise.all([
     DocumentModel.find(filter)
       .sort({ [sortField]: sortOrder })
@@ -259,6 +295,57 @@ export const getDocuments = asyncHandler(async (req: Request, res: Response) => 
       documents: docs,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 },
     },
+  });
+});
+
+export const getDocumentTags = asyncHandler(async (req: Request, res: Response) => {
+  const aggregate = await DocumentModel.aggregate<{ _id: string; count: number }>([
+    { $match: { userId: req.user!.id } },
+    { $unwind: '$tags' },
+    { $group: { _id: '$tags', count: { $sum: 1 } } },
+    { $sort: { count: -1, _id: 1 } },
+  ]);
+
+  res.json({
+    success: true,
+    message: 'Tags retrieved',
+    data: {
+      tags: aggregate.map(({ _id, count }) => ({ name: _id, count })),
+    },
+  });
+});
+
+export const updateDocumentOrganization = asyncHandler(async (req: Request, res: Response) => {
+  const document = await DocumentModel.findById(req.params.id);
+  if (!document) throw ApiError.notFound('Document not found');
+
+  const isOwner = String(document.userId) === String(req.user!.id);
+  if (!isOwner && req.user!.role !== 'ADMIN') {
+    throw ApiError.forbidden('You do not have access to this document');
+  }
+
+  const { folderId, tags } = req.body as { folderId?: string | null; tags?: string[] };
+
+  if (folderId !== undefined) {
+    if (folderId === null || folderId === '' || folderId === 'null') {
+      document.folderId = null;
+    } else {
+      const folder = await FolderModel.findOne({ _id: folderId, userId: req.user!.id });
+      if (!folder) throw ApiError.badRequest('The specified folder does not exist or does not belong to you');
+      document.folderId = folder._id as never;
+    }
+  }
+
+  if (tags !== undefined) {
+    document.tags = Array.from(new Set(tags.map((t) => t.trim().toLowerCase()).filter(Boolean))).slice(0, 8);
+  }
+
+  await document.save();
+
+  res.json({
+    success: true,
+    message: 'Document organization updated',
+    data: { document },
   });
 });
 

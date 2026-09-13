@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import type { Request, Response } from 'express';
 import { User } from '../models/User';
 import { DocumentModel } from '../models/Document';
+import { FolderModel } from '../models/Folder';
 import { Verification } from '../models/Verification';
 import { ActivityLog } from '../models/ActivityLog';
 import { UserSettings } from '../models/UserSettings';
@@ -110,6 +111,7 @@ export const deleteAccount = asyncHandler(async (req: Request, res: Response) =>
     Verification.deleteMany({ userId: user._id }),
     ActivityLog.deleteMany({ userId: user._id }),
     UserSettings.deleteMany({ userId: user._id }),
+    FolderModel.deleteMany({ userId: user._id }),
     // Access requests where this user was the requester.
     AccessRequest.deleteMany({ requesterId: user._id }),
     // Download codes, access requests and download audit rows tied to this

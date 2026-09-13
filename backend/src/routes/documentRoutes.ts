@@ -10,10 +10,17 @@ import {
   getDownloadCode,
   regenerateDownloadCodeHandler,
   deleteDocument,
+  getDocumentTags,
+  updateDocumentOrganization,
 } from '../controllers/documentController';
 import { documentUpload } from '../middleware/upload';
 import { validate } from '../middleware/validate';
-import { createDocumentSchema, mongoIdParam, registerDocumentTxSchema } from '../validators';
+import {
+  createDocumentSchema,
+  mongoIdParam,
+  registerDocumentTxSchema,
+  updateDocumentOrganizationSchema,
+} from '../validators';
 import { protect } from '../middleware/auth';
 
 const router = Router();
@@ -38,7 +45,14 @@ router.post(
   createDocument
 );
 router.get('/', getDocuments);
+router.get('/tags', getDocumentTags);
 router.get('/:id', validate(mongoIdParam, 'params'), getDocumentById);
+router.patch(
+  '/:id',
+  validate(mongoIdParam, 'params'),
+  validate(updateDocumentOrganizationSchema),
+  updateDocumentOrganization
+);
 router.get('/:id/versions', validate(mongoIdParam, 'params'), getDocumentVersions);
 router.post(
   '/:id/register',

@@ -52,6 +52,21 @@ export interface DocumentItem {
   version?: number;
   previousVersionId?: string;
   previousVersionHash?: string;
+  folderId?: string | null;
+  tags?: string[];
+}
+
+export interface Folder {
+  _id: string;
+  userId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TagCount {
+  name: string;
+  count: number;
 }
 
 export interface DocumentVersion {

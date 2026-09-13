@@ -61,12 +61,39 @@ export const createDocumentSchema = z.object({
   // Uploads a new revision of an existing document; the parent must already be
   // registered on-chain. Links the new document into the family/version chain.
   parentId: objectId.optional(),
+  // Optional organization: which folder the document lands in, plus tags.
+  folderId: objectId.optional(),
+  tags: z.array(z.string().trim().toLowerCase().min(1).max(24)).max(8).optional(),
 });
 
 export const registerDocumentTxSchema = z.object({
   transactionHash: txHash,
   blockNumber: z.number().int().nonnegative().optional(),
 });
+
+export const folderSchema = z.object({
+  name: z.string().trim().min(1, 'Folder name is required').max(60),
+});
+
+export const renameFolderSchema = z.object({
+  name: z.string().trim().min(1, 'Folder name is required').max(60),
+});
+
+export const updateDocumentOrganizationSchema = z
+  .object({
+    folderId: z.union([objectId, z.null(), z.literal('null'), z.literal('')]).optional(),
+    tags: z.array(z.string().trim().toLowerCase().min(1).max(24)).max(8).optional(),
+  })
+  .refine((data) => data.folderId !== undefined || data.tags !== undefined, {
+    message: 'Provide a folderId, tags, or both',
+  });
+
+const tagQuery = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(1, 'Tag must be at least 1 character')
+  .max(24);
 
 export const verifyByUploadSchema = z.object({
   documentId: objectId.optional(),
@@ -91,6 +118,8 @@ export const paginationQuery = z.object({
   isActive: z.enum(['ALL', 'true', 'false']).optional(),
   sortBy: z.string().max(50).optional(),
   sortOrder: z.enum(['asc', 'desc']).optional(),
+  folderId: z.string().trim().optional(),
+  tag: z.union([tagQuery, z.array(tagQuery)]).optional(),
 });
 
 export const mongoIdParam = z.object({ id: objectId });

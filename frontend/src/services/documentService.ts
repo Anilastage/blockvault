@@ -3,6 +3,8 @@ import type {
   DocumentItem,
   DocumentListResponse,
   DocumentVersion,
+  Folder,
+  TagCount,
   VerificationRecord,
 } from '@/types';
 
@@ -13,6 +15,8 @@ export interface DocumentQuery {
   status?: string;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
+  folderId?: string;
+  tag?: string | string[];
 }
 
 export const documentService = {
@@ -76,6 +80,41 @@ export const documentService = {
   ): Promise<DocumentItem> {
     const res = await api.post(`/documents/${id}/register`, payload);
     return unwrap<{ document: DocumentItem }>(res.data).document;
+  },
+
+  async updateOrganization(
+    id: string,
+    payload: { folderId?: string | null; tags?: string[] }
+  ): Promise<DocumentItem> {
+    const clean: Record<string, unknown> = {};
+    if (payload.folderId !== undefined) clean.folderId = payload.folderId;
+    if (payload.tags !== undefined) clean.tags = payload.tags;
+    const res = await api.patch(`/documents/${id}`, clean);
+    return unwrap<{ document: DocumentItem }>(res.data).document;
+  },
+
+  async tags(): Promise<TagCount[]> {
+    const res = await api.get('/documents/tags');
+    return unwrap<{ tags: TagCount[] }>(res.data).tags;
+  },
+
+  async listFolders(): Promise<Folder[]> {
+    const res = await api.get('/folders');
+    return unwrap<{ folders: Folder[] }>(res.data).folders;
+  },
+
+  async createFolder(name: string): Promise<Folder> {
+    const res = await api.post('/folders', { name });
+    return unwrap<{ folder: Folder }>(res.data).folder;
+  },
+
+  async renameFolder(id: string, name: string): Promise<Folder> {
+    const res = await api.patch(`/folders/${id}`, { name });
+    return unwrap<{ folder: Folder }>(res.data).folder;
+  },
+
+  async deleteFolder(id: string): Promise<void> {
+    await api.delete(`/folders/${id}`);
   },
 
   async remove(id: string): Promise<void> {

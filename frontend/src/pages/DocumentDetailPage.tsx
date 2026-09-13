@@ -15,6 +15,9 @@ import {
   GitBranch,
   AlertTriangle,
   CheckCircle2,
+  Folder as FolderIcon,
+  Pencil,
+  Tag as TagIcon,
 } from 'lucide-react';
 import { documentService } from '@/services/documentService';
 import { accessService } from '@/services/accessService';
@@ -27,6 +30,7 @@ import { HashDisplay } from '@/components/ui/HashDisplay';
 import { Spinner } from '@/components/ui/Feedback';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ShareDownloadCode } from '@/components/documents/ShareDownloadCode';
+import { FolderTagManager } from '@/components/documents/FolderTagManager';
 import { CertificateModal, type CertificateData } from '@/components/documents/CertificateModal';
 import { useToast } from '@/context/ToastContext';
 import { useWallet } from '@/context/WalletContext';
@@ -41,6 +45,22 @@ export const DocumentDetailPage = () => {
   const queryClient = useQueryClient();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [certOpen, setCertOpen] = useState(false);
+  const [organizeOpen, setOrganizeOpen] = useState(false);
+
+  const foldersQuery = useQuery({
+    queryKey: ['folders'],
+    queryFn: () => documentService.listFolders(),
+  });
+  const folders = foldersQuery.data ?? [];
+
+  const organizeSave = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['document', id] }),
+      queryClient.invalidateQueries({ queryKey: ['documents'] }),
+      queryClient.invalidateQueries({ queryKey: ['folders'] }),
+      queryClient.invalidateQueries({ queryKey: ['document-tags'] }),
+    ]);
+  };
 
   const document = useQuery({
     queryKey: ['document', id],
@@ -245,6 +265,48 @@ export const DocumentDetailPage = () => {
       )}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        {/* Organization */}
+        <Card className="p-5">
+          <h3 className="mb-4 flex items-center gap-2 font-semibold text-dark">
+            <FolderIcon className="h-4 w-4 text-primary-500" /> Organization
+          </h3>
+          <div className="space-y-3.5">
+            <div className="flex items-center justify-between gap-3">
+              <dt className="text-sm font-medium text-slate-500">Folder</dt>
+              <dd className="truncate text-sm text-dark">
+                {doc.folderId ? folders.find((f) => f._id === doc.folderId)?.name ?? '—' : 'Unfiled'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">Tags</dt>
+              <dd className="mt-1.5">
+                {doc.tags && doc.tags.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {doc.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center gap-1 rounded-lg bg-secondary-500/10 px-2 py-1 text-xs font-medium text-secondary-500"
+                      >
+                        <TagIcon className="h-3 w-3" /> {tag}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400">No tags</p>
+                )}
+              </dd>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              icon={<Pencil className="h-4 w-4" />}
+              onClick={() => setOrganizeOpen(true)}
+            >
+              Organize
+            </Button>
+          </div>
+        </Card>
+
         {/* Share by code */}
         <ShareDownloadCode documentId={doc._id} />
 
@@ -508,6 +570,14 @@ export const DocumentDetailPage = () => {
         loading={deleteMutation.isPending}
         onCancel={() => setConfirmDelete(false)}
         onConfirm={() => deleteMutation.mutate()}
+      />
+
+      <FolderTagManager
+        open={organizeOpen}
+        onClose={() => setOrganizeOpen(false)}
+        document={organizeOpen ? doc : null}
+        folders={folders}
+        onSaved={() => void organizeSave()}
       />
 
       <CertificateModal open={certOpen} onClose={() => setCertOpen(false)} data={certOpen ? certData : null} />

@@ -11,6 +11,9 @@ import {
   Link2,
   ShieldCheck,
   Zap,
+  Folder as FolderIcon,
+  FolderPlus,
+  Tag as TagIcon,
 } from 'lucide-react';
 import { documentService } from '@/services/documentService';
 import { Card } from '@/components/ui/Card';
@@ -21,12 +24,13 @@ import { EmptyState, Spinner, TableSkeleton } from '@/components/ui/Feedback';
 import { PaginationControls } from '@/components/ui/Pagination';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Modal } from '@/components/ui/Modal';
+import { FolderTagManager } from '@/components/documents/FolderTagManager';
 import { useToast } from '@/context/ToastContext';
 import { useWallet } from '@/context/WalletContext';
 import { getApiErrorMessage } from '@/services/api';
 import { formatBytes, formatDate, fileExtension } from '@/utils/format';
 import { registerHashOnChain, isRegisterFailure, failureMessage } from '@/utils/blockchainRegistration';
-import type { DocumentItem } from '@/types';
+import type { DocumentItem, Folder, TagCount } from '@/types';
 
 const filters = [
   { value: '', label: 'All' },
@@ -45,14 +49,41 @@ export const DocumentsPage = () => {
   const page = parseInt(params.get('page') ?? '1', 10);
   const search = params.get('search') ?? '';
   const status = params.get('status') ?? '';
+  const folderId = params.get('folderId') ?? '';
+  const selectedTags = params.getAll('tag');
   const [searchInput, setSearchInput] = useState(search);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [organizeTarget, setOrganizeTarget] = useState<DocumentItem | null>(null);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const query = useQuery({
-    queryKey: ['documents', { page, search, status }],
-    queryFn: () => documentService.list({ page, limit: 10, search, status: status || undefined }),
+    queryKey: ['documents', { page, search, status, folderId, tag: selectedTags }],
+    queryFn: () =>
+      documentService.list({
+        page,
+        limit: 10,
+        search,
+        status: status || undefined,
+        folderId: folderId || undefined,
+        tag: selectedTags.length > 0 ? selectedTags : undefined,
+      }),
   });
+
+  const foldersQuery = useQuery({
+    queryKey: ['folders'],
+    queryFn: () => documentService.listFolders(),
+  });
+
+  const tagsQuery = useQuery({
+    queryKey: ['document-tags'],
+    queryFn: () => documentService.tags(),
+  });
+
+  const folders: Folder[] = foldersQuery.data ?? [];
+  const tagCloud: TagCount[] = tagsQuery.data ?? [];
 
   const detail = useQuery({
     queryKey: ['document', detailId],
@@ -147,6 +178,45 @@ export const DocumentsPage = () => {
     setParams(next);
   };
 
+  const toggleTag = (tag: string) => {
+    const next = new URLSearchParams(params);
+    const current = next.getAll('tag');
+    if (current.includes(tag) && current.length === 1) next.delete('tag');
+    else if (current.includes(tag)) {
+      next.set('tag', current.filter((t) => t !== tag).join(''));
+    } else next.append('tag', tag);
+    next.delete('page');
+    setParams(next);
+  };
+
+  const createFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name) {
+      setSaveError('Enter a folder name.');
+      return;
+    }
+    setCreatingFolder(true);
+    setSaveError(null);
+    try {
+      const folder = await documentService.createFolder(name);
+      setNewFolderName('');
+      updateParam('folderId', folder._id);
+      await queryClient.invalidateQueries({ queryKey: ['folders'] });
+    } catch (err) {
+      setSaveError(getApiErrorMessage(err));
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
+
+  const refreshOrganization = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['documents'] }),
+      queryClient.invalidateQueries({ queryKey: ['folders'] }),
+      queryClient.invalidateQueries({ queryKey: ['document-tags'] }),
+    ]);
+  };
+
   const documents = query.data?.documents ?? [];
   const pagination = query.data?.pagination;
 
@@ -186,7 +256,7 @@ export const DocumentsPage = () => {
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Status filters */}
       <div className="flex flex-wrap gap-1.5">
         {filters.map((f) => (
           <button
@@ -203,12 +273,114 @@ export const DocumentsPage = () => {
         ))}
       </div>
 
+      {/* Folder filters */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          onClick={() => updateParam('folderId', '')}
+          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+            folderId === ''
+              ? 'bg-dark text-white shadow-sm'
+              : 'bg-white text-slate-600 border border-slate-200 hover:border-primary-300'
+          }`}
+        >
+          <FolderIcon className="h-3.5 w-3.5" /> All folders
+        </button>
+        <button
+          onClick={() => updateParam('folderId', 'unfiled')}
+          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+            folderId === 'unfiled'
+              ? 'bg-dark text-white shadow-sm'
+              : 'bg-white text-slate-600 border border-slate-200 hover:border-primary-300'
+          }`}
+        >
+          <FolderIcon className="h-3.5 w-3.5" /> Unfiled
+        </button>
+        {folders.map((f) => (
+          <button
+            key={f._id}
+            onClick={() => updateParam('folderId', folderId === f._id ? '' : f._id)}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+              folderId === f._id
+                ? 'bg-primary-500 text-white shadow-sm'
+                : 'bg-white text-slate-600 border border-slate-200 hover:border-primary-300'
+            }`}
+          >
+            <FolderIcon className="h-3.5 w-3.5" /> {f.name}
+          </button>
+        ))}
+        {creatingFolder ? (
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-primary-200 bg-white p-1">
+            <input
+              autoFocus
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              onBlur={() => {
+                setCreatingFolder(false);
+                setNewFolderName('');
+                setSaveError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void createFolder();
+                }
+                if (e.key === 'Escape') {
+                  setCreatingFolder(false);
+                  setNewFolderName('');
+                  setSaveError(null);
+                }
+              }}
+              placeholder="Folder name"
+              className="input-base w-36 px-2 py-1 text-sm"
+            />
+            <button
+              onClick={() => void createFolder()}
+              className="rounded-lg bg-primary-500 p-1.5 text-white transition-colors hover:bg-primary-600"
+              aria-label="Create folder"
+            >
+              <FolderPlus className="h-4 w-4" />
+            </button>
+          </span>
+        ) : (
+          <button
+            onClick={() => setCreatingFolder(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-primary-300 px-3 py-1.5 text-sm font-medium text-primary-600 transition-colors hover:bg-primary-50"
+          >
+            <FolderPlus className="h-3.5 w-3.5" /> New folder
+          </button>
+        )}
+      </div>
+      {saveError && <p className="text-sm text-danger">{saveError}</p>}
+
+      {/* Tag filters */}
+      {tagCloud.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <TagIcon className="h-3.5 w-3.5 text-slate-400" />
+          {tagCloud.map((t) => (
+            <button
+              key={t.name}
+              onClick={() => toggleTag(t.name)}
+              className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                selectedTags.includes(t.name)
+                  ? 'bg-secondary-500 text-white shadow-sm'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:border-secondary-400'
+              }`}
+            >
+              {t.name}
+              <span className={selectedTags.includes(t.name) ? 'text-white/80' : 'text-slate-400'}>
+                {t.count}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Table / cards */}
       <Card className="overflow-hidden">
         {query.isLoading ? (
           <TableSkeleton rows={6} cols={5} />
         ) : documents.length === 0 ? (
-          search || status ? (
+          search || status || folderId || selectedTags.length > 0 ? (
             <EmptyState
               icon={<Search className="h-7 w-7" />}
               title="No documents found"
@@ -282,6 +454,9 @@ export const DocumentsPage = () => {
                               <Link2 className="h-4 w-4" />
                             </IconAction>
                           )}
+                          <IconAction title="Move to folder / add tags" onClick={() => setOrganizeTarget(doc)}>
+                            <FolderIcon className="h-4 w-4" />
+                          </IconAction>
                           <IconAction
                             title="Download"
                             onClick={() =>
@@ -335,6 +510,9 @@ export const DocumentsPage = () => {
                           <Zap className="h-4 w-4" />
                         </IconAction>
                       )}
+                      <IconAction title="Move to folder / add tags" onClick={() => setOrganizeTarget(doc)}>
+                        <FolderIcon className="h-4 w-4" />
+                      </IconAction>
                       <IconAction title="Download" onClick={() => downloadMutation.mutate({ id: doc._id, name: doc.originalName })}>
                         <Download className="h-4 w-4" />
                       </IconAction>
@@ -405,6 +583,17 @@ export const DocumentsPage = () => {
                   Register
                 </Button>
               )}
+              <Button
+                variant="outline"
+                size="sm"
+                icon={<FolderIcon className="h-4 w-4" />}
+                onClick={() => {
+                  setOrganizeTarget(detail.data);
+                  setDetailId(null);
+                }}
+              >
+                Organize
+              </Button>
               <Button size="sm" onClick={() => { setDetailId(null); navigate(`/documents/${detail.data!._id}`); }}>
                 Full details
               </Button>
@@ -412,6 +601,15 @@ export const DocumentsPage = () => {
           </dl>
         ) : null}
       </Modal>
+
+      {/* Organize modal */}
+      <FolderTagManager
+        open={!!organizeTarget}
+        onClose={() => setOrganizeTarget(null)}
+        document={organizeTarget}
+        folders={folders}
+        onSaved={() => void refreshOrganization()}
+      />
 
       {/* Delete confirm */}
       <ConfirmDialog

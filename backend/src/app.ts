@@ -17,6 +17,7 @@ import adminRoutes from './routes/adminRoutes';
 import notificationRoutes from './routes/notificationRoutes';
 import accessRoutes from './routes/accessRoutes';
 import downloadRoutes from './routes/downloadRoutes';
+import folderRoutes from './routes/folderRoutes';
 import rateLimit from 'express-rate-limit';
 
 export const createApp = (): Express => {
@@ -70,6 +71,7 @@ export const createApp = (): Express => {
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/access', accessRoutes);
   app.use('/api/download', downloadRoutes);
+  app.use('/api/folders', folderRoutes);
 
   // uploads are intentionally NOT served statically; downloads go through
   // the authorized /api/documents/:id/download route only.

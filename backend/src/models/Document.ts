@@ -23,6 +23,8 @@ export interface IDocument extends MongoDocument {
   version?: number;
   previousVersionId?: mongoose.Types.ObjectId;
   previousVersionHash?: string;
+  folderId?: mongoose.Types.ObjectId | null;
+  tags?: string[];
 }
 
 const documentSchema = new Schema<IDocument>(
@@ -56,12 +58,15 @@ const documentSchema = new Schema<IDocument>(
     version: { type: Number },
     previousVersionId: { type: Schema.Types.ObjectId, ref: 'Document' },
     previousVersionHash: { type: String },
+    folderId: { type: Schema.Types.ObjectId, ref: 'Folder', default: null },
+    tags: { type: [String], default: [] },
   },
   { timestamps: true }
 );
 
 documentSchema.index({ originalName: 'text', sha256Hash: 'text', transactionHash: 'text' });
 documentSchema.index({ familyId: 1, version: 1 });
+documentSchema.index({ userId: 1, folderId: 1 });
 
 export const DocumentModel: Model<IDocument> = mongoose.model<IDocument>(
   'Document',
