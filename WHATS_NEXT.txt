@@ -46,15 +46,22 @@
           MONGODB_URI=mongodb://user:pass@mongo:27017/blockvault.
         - Run a test backup & restore BEFORE going live.
 
-[ ] 4. Email (SMTP) — required, login is gated on Email OTP
-        - Current creds are a Gmail account (app password).
-        - For production prefer a domain sender (SendGrid, SES, Zoho, Mailgun…).
-        - Set up SPF / DKIM / DMARC for your domain so OTP emails don't land in
-          spam. Gmail free accounts cap ~500 emails/day — this project emails
-          one OTP per login, so be aware of the ceiling.
-        - Values: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS,
-                  EMAIL_FROM_NAME, EMAIL_FROM_ADDRESS
-        - If you have a Twilio number, SMTP_CONFIDENTIAL: TWILIO_ACCOUNT_SID,
+[ ] 4. Email (Resend API) — required, login is gated on Email OTP
+        - Production uses the Resend HTTPS API because Render blocks SMTP ports.
+        - Create an API key at https://resend.com and set RESEND_API_KEY.
+        - Verify a sending domain in Resend and configure its DNS records
+          (SPF / DKIM / DMARC). Then set EMAIL_FROM_ADDRESS to an address on
+          that domain.
+        - Until a domain is verified, use EMAIL_FROM_ADDRESS=onboarding@resend.dev.
+          That only delivers to the Resend account owner's email address, so it
+          is not suitable for real users.
+        - Keep SMTP_ENABLED=false. SMTP_HOST/PORT/USER/PASS are optional local
+          fallbacks only.
+        - Values: RESEND_API_KEY, EMAIL_FROM_NAME, EMAIL_FROM_ADDRESS,
+                  SMTP_ENABLED=false
+        - RESEND_API_URL is optional; the default is
+          https://api.resend.com/emails.
+        - If you have a Twilio number, also set TWILIO_ACCOUNT_SID,
           TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER (optional; SMS OTP feature).
 
 [ ] 5. Blockchain — deploy the contract to Sepolia
@@ -81,7 +88,8 @@
         CHAIN_ID=11155111
         CONTRACT_ADDRESS=0x...                 (from step 5)
         BLOCKCHAIN_EXPLORER_URL=https://sepolia.etherscan.io
-        SMTP_* , EMAIL_FROM_*                  (from step 4)
+        RESEND_API_KEY , EMAIL_FROM_*          (from step 4)
+        SMTP_ENABLED=false                     (use Resend, not SMTP)
         TWILIO_*                               (only if SMS OTP used)
 
 [ ] 7. Prepare the frontend build
@@ -181,8 +189,9 @@
         - GET  https://app/health                          -> 200 success
         - Register first user                            -> role ADMIN
         - Login (password)                               -> Email OTP delivered?
-             -> ONLY rely on devCode if SMTP is off — in prod the code arrives
-                by email; if no email arrives, check spam + SMTP logs.
+             -> ONLY rely on devCode if email is not configured — in prod the
+                code arrives by email; if no email arrives, check spam + Resend
+                logs/delivery status.
         - Enable TOTP 2FA, log in again using the 6-digit email OTP + TOTP.
         - Upload a document                              -> file appears, hash computed
         - Register document on-chain                     -> transactionHash set,
@@ -198,7 +207,7 @@
 [ ] 22. Monitoring & operations
         - Health/uptime: poll /health (200 + message).
         - Logs: docker compose logs; watch for 429s (rate limits are on),
-          5xx, and SMTP send errors.
+          5xx, and Resend/SMTP send errors.
         - Storage: keep an eye on the uploads volume size.
         - Rate limiting already covers /api (300/min/IP), auth (authLimiter),
           OTP (per-user), downloads (downloadLimiter) — no action needed,
@@ -243,12 +252,11 @@ BLOCKCHAIN_RPC_URL=https://sepolia.infura.io/v3/<key>
 CHAIN_ID=11155111
 CONTRACT_ADDRESS=0x<deployed on Sepolia>
 BLOCKCHAIN_EXPLORER_URL=https://sepolia.etherscan.io
-SMTP_HOST=smtp.yourprovider.com
-SMTP_PORT=587
-SMTP_USER=no-reply@yourdomain.com
-SMTP_PASS=<app/smtp password>
+RESEND_API_KEY=re_<your Resend API key>
+RESEND_API_URL=https://api.resend.com/emails   # optional (default)
 EMAIL_FROM_NAME=BlockVault
-EMAIL_FROM_ADDRESS=no-reply@yourdomain.com
+EMAIL_FROM_ADDRESS=no-reply@yourdomain.com     # or onboarding@resend.dev
+SMTP_ENABLED=false
 TWILIO_ACCOUNT_SID=      # optional
 TWILIO_AUTH_TOKEN=       # optional
 TWILIO_FROM_NUMBER=      # optional
