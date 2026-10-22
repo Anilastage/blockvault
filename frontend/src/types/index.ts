@@ -2,6 +2,36 @@ export type UserRole = 'USER' | 'ADMIN';
 
 export type MfaMethod = 'totp' | 'email_otp' | 'sms_otp';
 
+export interface VaultBundle {
+  version: number;
+  publicKey: string;
+  encryptedPrivateKey: string;
+  privateKeyIv: string;
+  passwordWrappedVaultKey: string;
+  passwordWrapIv: string;
+  recoveryWrappedVaultKey: string;
+  recoveryWrapIv: string;
+  keySalt: string;
+  keyIterations: number;
+}
+
+export interface VaultPasswordEnvelope {
+  passwordWrappedVaultKey: string;
+  passwordWrapIv: string;
+  keySalt: string;
+  keyIterations: number;
+}
+
+export interface VaultRecoveryStart {
+  recoveryToken: string;
+  email: string;
+  /** False for accounts that never created an encryption vault. */
+  hasVault: boolean;
+  recoveryWrappedVaultKey?: string;
+  recoveryWrapIv?: string;
+  devCode?: string;
+}
+
 export interface User {
   id: string;
   _id?: string;
@@ -18,6 +48,7 @@ export interface User {
   twoFactorEnabled: boolean;
   mfaMethod?: MfaMethod;
   phoneNumber?: string;
+  encryption?: { version: number; publicKey?: string } | null;
 }
 
 export interface TwoFactorSetup {
@@ -32,8 +63,24 @@ export type BlockchainStatus = 'PENDING' | 'CONFIRMED' | 'FAILED';
 export type VerificationStatus = 'UNVERIFIED' | 'VERIFIED' | 'MODIFIED' | 'NOT_FOUND';
 export type VerificationResult = 'VERIFIED' | 'MODIFIED' | 'NOT_FOUND';
 
+export interface DocumentEncryptionInfo {
+  version: number;
+  algorithm: string;
+  iv: string;
+  wrappedKey: string;
+  keyIv: string;
+  plaintextHash: string;
+  ciphertextHash: string;
+  ciphertextSize: number;
+  shareKeyWrapped?: string;
+  shareKeyWrapIv?: string;
+  shareDekWrapped?: string;
+  shareDekIv?: string;
+}
+
 export interface DocumentItem {
   _id: string;
+  encryption?: DocumentEncryptionInfo | null;
   userId: { _id: string; fullName: string; email: string } | string;
   originalName: string;
   fileName: string;
@@ -174,6 +221,17 @@ export interface AdminStats {
   pendingTransactions: number;
 }
 
+export interface AdminUserDetail {
+  user: User;
+  stats: {
+    totalDocuments: number;
+    confirmed: number;
+    pending: number;
+    encrypted: number;
+    verifications: number;
+  };
+}
+
 export interface AdminAnalytics {
   stats: AdminStats;
   timeline: Array<{ date: string; users: number; uploads: number; verifications: number }>;
@@ -294,9 +352,17 @@ export interface AccessRequestItem {
         fileSize?: number;
         mimeType?: string;
         userId?: { _id: string; fullName?: string };
+        encryption?: DocumentEncryptionInfo | null;
       }
     | string;
-  requesterId: { _id: string; fullName: string; email: string } | string;
+  requesterId:
+    | {
+        _id: string;
+        fullName: string;
+        email: string;
+        encryption?: { publicKey?: string } | null;
+      }
+    | string;
   reason?: string;
   status: AccessRequestStatus;
   accessToken?: string;

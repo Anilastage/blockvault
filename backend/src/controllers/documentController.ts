@@ -3,6 +3,7 @@ import path from 'path';
 import type { Request, Response } from 'express';
 import { DocumentModel } from '../models/Document';
 import { FolderModel } from '../models/Folder';
+import { User } from '../models/User';
 import { DownloadRecord } from '../models/DownloadRecord';
 import { DownloadCode } from '../models/DownloadCode';
 import { AccessRequest } from '../models/AccessRequest';
@@ -10,10 +11,11 @@ import { asyncHandler } from '../middleware/errorHandler';
 import { ApiError } from '../utils/ApiError';
 import { sha256File } from '../utils/hash';
 import { env } from '../config/env';
-import { validateRegistrationTx } from '../services/blockchainService';
+import * as blockchainService from '../services/blockchainService';
 import { logActivity, clientMeta } from '../services/activityService';
 import { notifyDocumentDeleted } from '../services/notificationService';
 import { storageProvider } from '../services/storageService';
+import { setEncryptedFileHeaders } from '../utils/encryptionHeaders';
 import {
   getOrCreateDownloadCode,
   regenerateDownloadCode,
@@ -37,6 +39,32 @@ const parseTagFilter = (tag: string | string[] | undefined): string[] | undefine
 };
 
 /**
+ * The contract records `owner = msg.sender`, so the on-chain owner of a
+ * registration is only meaningful if it is the wallet linked to this account.
+ * Registration therefore requires a linked wallet, and the transaction must
+ * have been sent by that exact wallet.
+ */
+const assertRegistrationWallet = async (
+  userId: string,
+  signer: string | undefined
+): Promise<void> => {
+  const user = await User.findById(userId).select('walletAddress');
+  if (!user) throw ApiError.notFound('User not found');
+  if (!user.walletAddress) {
+    throw ApiError.badRequest(
+      'Link your wallet to your account before registering on the blockchain. Open Profile -> Blockchain Identity and link it.'
+    );
+  }
+  if (!signer || signer.toLowerCase() !== user.walletAddress.toLowerCase()) {
+    throw ApiError.badRequest(
+      `This transaction was sent by ${
+        signer ?? 'an unknown wallet'
+      }, which is not the wallet linked to your account (${user.walletAddress}). Connect the linked wallet and try again.`
+    );
+  }
+};
+
+/**
  * Create a document record. Two modes:
  *  - Registered: the wallet has already stored the file's hash on-chain, so the
  *    submitted transactionHash is independently verified server-side.
@@ -50,37 +78,82 @@ export const createDocument = asyncHandler(async (req: Request, res: Response) =
   const file = req.file;
   if (!file) throw ApiError.badRequest('Document file is required');
 
-  const { originalName, fileSize, mimeType, sha256Hash, transactionHash, blockNumber, parentId, folderId, tags } =
-    req.body as {
-      originalName: string;
-      fileSize: number;
-      mimeType: string;
-      sha256Hash: string;
-      transactionHash?: string;
-      blockNumber?: number;
-      parentId?: string;
-      folderId?: string;
-      tags?: string[];
-    };
+  const {
+    originalName,
+    fileSize,
+    mimeType,
+    sha256Hash,
+    transactionHash,
+    blockNumber,
+    parentId,
+    folderId,
+    tags,
+    encrypted,
+    encryptionIv,
+    encryptionWrappedKey,
+    encryptionKeyIv,
+    ciphertextHash,
+    ciphertextSize,
+  } = req.body as {
+    originalName: string;
+    fileSize: number;
+    mimeType: string;
+    sha256Hash: string;
+    transactionHash?: string;
+    blockNumber?: number;
+    parentId?: string;
+    folderId?: string;
+    tags?: string[];
+    encrypted: boolean;
+    encryptionIv?: string;
+    encryptionWrappedKey?: string;
+    encryptionKeyIv?: string;
+    ciphertextHash?: string;
+    ciphertextSize?: number;
+  };
 
-  // 1. Hash must match the real file bytes.
+  // 1. The bytes on disk are either the plaintext (legacy) or ciphertext
+  // (client-side encrypted). Validate whichever contract applies.
   const computedHash = await sha256File(file.path);
-  if (computedHash !== sha256Hash.toLowerCase()) {
-    await fs.unlink(file.path).catch(() => undefined);
-    throw ApiError.badRequest(
-      'The uploaded file does not match the hash registered on the blockchain.'
-    );
-  }
-  if (file.size !== Number(fileSize)) {
-    await fs.unlink(file.path).catch(() => undefined);
-    throw ApiError.badRequest('File size mismatch.');
+  const plaintextHash = sha256Hash.toLowerCase();
+
+  if (encrypted) {
+    if (
+      !encryptionIv ||
+      !encryptionWrappedKey ||
+      !encryptionKeyIv ||
+      !ciphertextHash ||
+      !ciphertextSize
+    ) {
+      await fs.unlink(file.path).catch(() => undefined);
+      throw ApiError.badRequest('Encrypted upload metadata is incomplete.');
+    }
+    if (computedHash !== ciphertextHash.toLowerCase()) {
+      await fs.unlink(file.path).catch(() => undefined);
+      throw ApiError.badRequest('The uploaded encrypted file failed its integrity check.');
+    }
+    if (file.size !== Number(ciphertextSize)) {
+      await fs.unlink(file.path).catch(() => undefined);
+      throw ApiError.badRequest('Encrypted file size mismatch.');
+    }
+  } else {
+    if (computedHash !== plaintextHash) {
+      await fs.unlink(file.path).catch(() => undefined);
+      throw ApiError.badRequest(
+        'The uploaded file does not match the hash registered on the blockchain.'
+      );
+    }
+    if (file.size !== Number(fileSize)) {
+      await fs.unlink(file.path).catch(() => undefined);
+      throw ApiError.badRequest('File size mismatch.');
+    }
   }
 
   let validatedTx = undefined;
   // 2. When a transaction is supplied it must genuinely exist and register
-  // this exact hash.
+  // the plaintext hash (the hash anchored on-chain).
   if (transactionHash) {
-    const validation = await validateRegistrationTx(transactionHash, computedHash);
+    const validation = await blockchainService.validateRegistrationTx(transactionHash, plaintextHash);
     if (!validation.valid || !validation.details) {
       await fs.unlink(file.path).catch(() => undefined);
       throw ApiError.badRequest(
@@ -88,6 +161,13 @@ export const createDocument = asyncHandler(async (req: Request, res: Response) =
       );
     }
     validatedTx = validation.details;
+    // The wallet that sent the transaction must be the wallet linked to the account.
+    try {
+      await assertRegistrationWallet(String(req.user!.id), validatedTx.from);
+    } catch (error) {
+      await fs.unlink(file.path).catch(() => undefined);
+      throw error;
+    }
   }
 
   // 3. Optional new-version linkage: verify the parent exists, belongs to this
@@ -136,11 +216,23 @@ export const createDocument = asyncHandler(async (req: Request, res: Response) =
     userId: req.user!.id,
     originalName,
     fileName: path.basename(file.filename),
-    fileSize: file.size,
+    fileSize: encrypted ? Number(fileSize) : file.size,
     mimeType,
     storagePath: file.filename,
-    sha256Hash: computedHash,
-    blockchainHash: validatedTx ? computedHash : undefined,
+    sha256Hash: plaintextHash,
+    encryption: encrypted
+      ? {
+          version: 1,
+          algorithm: 'AES-256-GCM',
+          iv: encryptionIv!,
+          wrappedKey: encryptionWrappedKey!,
+          keyIv: encryptionKeyIv!,
+          plaintextHash,
+          ciphertextHash: computedHash,
+          ciphertextSize: file.size,
+        }
+      : undefined,
+    blockchainHash: validatedTx ? plaintextHash : undefined,
     transactionHash: validatedTx ? transactionHash : undefined,
     blockNumber: validatedTx ? (validatedTx.blockNumber ?? blockNumber) : undefined,
     contractAddress: validatedTx ? env.blockchain.contractAddress.toLowerCase() : undefined,
@@ -166,8 +258,9 @@ export const createDocument = asyncHandler(async (req: Request, res: Response) =
     entityId: String(document._id),
     metadata: {
       name: originalName,
-      hash: computedHash,
+      hash: plaintextHash,
       transactionHash,
+      encrypted,
       version: family.version,
       previousVersionId: family.previousVersionId,
     },
@@ -219,10 +312,11 @@ export const registerDocument = asyncHandler(async (req: Request, res: Response)
     blockNumber?: number;
   };
 
-  const validation = await validateRegistrationTx(transactionHash, document.sha256Hash);
+  const validation = await blockchainService.validateRegistrationTx(transactionHash, document.sha256Hash);
   if (!validation.valid || !validation.details) {
     throw ApiError.badRequest(validation.reason ?? 'Blockchain transaction could not be verified.');
   }
+  await assertRegistrationWallet(String(req.user!.id), validation.details.from);
 
   const updated = await DocumentModel.findByIdAndUpdate(
     document._id,
@@ -412,8 +506,12 @@ export const downloadDocument = asyncHandler(async (req: Request, res: Response)
   if (!document) throw ApiError.notFound('Document not found');
 
   const isOwner = String(document.userId) === String(req.user!.id);
-  if (!isOwner && req.user!.role !== 'ADMIN') {
-    throw ApiError.forbidden('You do not have access to this document');
+  if (!isOwner && (document.encryption || req.user!.role !== 'ADMIN')) {
+    throw ApiError.forbidden(
+      document.encryption
+        ? 'This document is end-to-end encrypted. Only the owner can decrypt it.'
+        : 'You do not have access to this document'
+    );
   }
 
   const existsOnDisk = await storageProvider.exists(document.storagePath);
@@ -435,6 +533,11 @@ export const downloadDocument = asyncHandler(async (req: Request, res: Response)
     ...clientMeta(req.ip, req.headers['user-agent']),
   });
 
+  setEncryptedFileHeaders(res, document, {
+    wrappedKey: document.encryption?.wrappedKey,
+    keyIv: document.encryption?.keyIv,
+    wrapAlg: 'AES-GCM-VAULT',
+  });
   res.setHeader('Content-Type', document.mimeType);
   res.setHeader(
     'Content-Disposition',
@@ -516,6 +619,64 @@ export const regenerateDownloadCodeHandler = asyncHandler(
     });
   }
 );
+
+/** GET /api/documents/:id/share-key — wrapped keys used by secure share links. */
+export const getShareKey = asyncHandler(async (req: Request, res: Response) => {
+  const document = await DocumentModel.findById(req.params.id);
+  if (!document) throw ApiError.notFound('Document not found');
+
+  const isOwner = String(document.userId) === String(req.user!.id);
+  if (!isOwner && req.user!.role !== 'ADMIN') {
+    throw ApiError.forbidden('You do not have access to this document');
+  }
+
+  res.json({
+    success: true,
+    message: 'Share key retrieved',
+    data: {
+      shareKey: document.encryption
+        ? {
+            shareKeyWrapped: document.encryption.shareKeyWrapped ?? null,
+            shareKeyWrapIv: document.encryption.shareKeyWrapIv ?? null,
+            shareDekWrapped: document.encryption.shareDekWrapped ?? null,
+            shareDekIv: document.encryption.shareDekIv ?? null,
+          }
+        : null,
+    },
+  });
+});
+
+/** PUT /api/documents/:id/share-key — store keys wrapped by the owner's vault. */
+export const setShareKey = asyncHandler(async (req: Request, res: Response) => {
+  const document = await DocumentModel.findById(req.params.id);
+  if (!document) throw ApiError.notFound('Document not found');
+  if (String(document.userId) !== String(req.user!.id)) {
+    throw ApiError.forbidden('Only the document owner can configure a secure share link.');
+  }
+  if (!document.encryption) {
+    throw ApiError.badRequest('This document is not end-to-end encrypted.');
+  }
+
+  const { shareKeyWrapped, shareKeyWrapIv, shareDekWrapped, shareDekIv } = req.body as {
+    shareKeyWrapped: string;
+    shareKeyWrapIv: string;
+    shareDekWrapped: string;
+    shareDekIv: string;
+  };
+
+  document.encryption.shareKeyWrapped = shareKeyWrapped;
+  document.encryption.shareKeyWrapIv = shareKeyWrapIv;
+  document.encryption.shareDekWrapped = shareDekWrapped;
+  document.encryption.shareDekIv = shareDekIv;
+  document.markModified('encryption');
+  await document.save();
+
+  res.json({
+    success: true,
+    message: 'Secure share link key saved',
+    data: { document },
+  });
+});
 
 export const deleteDocument = asyncHandler(async (req: Request, res: Response) => {
   const document = await DocumentModel.findById(req.params.id).populate('userId', 'fullName email');

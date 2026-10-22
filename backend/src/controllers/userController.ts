@@ -12,7 +12,111 @@ import { DownloadRecord } from '../models/DownloadRecord';
 import { asyncHandler } from '../middleware/errorHandler';
 import { ApiError } from '../utils/ApiError';
 import { logActivity, clientMeta } from '../services/activityService';
+import { createLinkMessage, assertValidLinkSignature } from '../services/walletLinkService';
 import { storageProvider } from '../services/storageService';
+
+const ENCRYPTION_SELECT =
+  '+encryption.encryptedPrivateKey +encryption.privateKeyIv ' +
+  '+encryption.passwordWrappedVaultKey +encryption.passwordWrapIv ' +
+  '+encryption.recoveryWrappedVaultKey +encryption.recoveryWrapIv ' +
+  '+encryption.keySalt +encryption.keyIterations';
+
+const encryptionPayload = (user: {
+  encryption?: {
+    version: number;
+    publicKey?: string;
+    encryptedPrivateKey?: string;
+    privateKeyIv?: string;
+    passwordWrappedVaultKey?: string;
+    passwordWrapIv?: string;
+    recoveryWrappedVaultKey?: string;
+    recoveryWrapIv?: string;
+    keySalt?: string;
+    keyIterations?: number;
+  };
+}) => {
+  const encryption = user.encryption;
+  if (!encryption?.publicKey || !encryption.passwordWrappedVaultKey) return null;
+  return {
+    version: encryption.version,
+    publicKey: encryption.publicKey,
+    encryptedPrivateKey: encryption.encryptedPrivateKey,
+    privateKeyIv: encryption.privateKeyIv,
+    passwordWrappedVaultKey: encryption.passwordWrappedVaultKey,
+    passwordWrapIv: encryption.passwordWrapIv,
+    recoveryWrappedVaultKey: encryption.recoveryWrappedVaultKey,
+    recoveryWrapIv: encryption.recoveryWrapIv,
+    keySalt: encryption.keySalt,
+    keyIterations: encryption.keyIterations,
+  };
+};
+
+/** GET /api/users/encryption — wrapped vault material for the signed-in user. */
+export const getEncryption = asyncHandler(async (req: Request, res: Response) => {
+  const user = await User.findById(req.user!.id).select(ENCRYPTION_SELECT);
+  if (!user) throw ApiError.notFound('User not found');
+  res.json({
+    success: true,
+    message: 'Encryption identity retrieved',
+    data: { encryption: encryptionPayload(user) },
+  });
+});
+
+/** POST /api/users/encryption — initialize the vault exactly once. */
+export const setupEncryption = asyncHandler(async (req: Request, res: Response) => {
+  const user = await User.findById(req.user!.id).select(ENCRYPTION_SELECT);
+  if (!user) throw ApiError.notFound('User not found');
+  if (user.encryption?.publicKey) {
+    throw ApiError.conflict('Your encryption vault is already initialized.');
+  }
+
+  user.encryption = {
+    version: 1,
+    publicKey: req.body.publicKey,
+    encryptedPrivateKey: req.body.encryptedPrivateKey,
+    privateKeyIv: req.body.privateKeyIv,
+    passwordWrappedVaultKey: req.body.passwordWrappedVaultKey,
+    passwordWrapIv: req.body.passwordWrapIv,
+    recoveryWrappedVaultKey: req.body.recoveryWrappedVaultKey,
+    recoveryWrapIv: req.body.recoveryWrapIv,
+    keySalt: req.body.keySalt,
+    keyIterations: req.body.keyIterations,
+  };
+  await user.save();
+
+  await logActivity({
+    userId: String(user._id),
+    action: 'VAULT_INITIALIZED',
+    entityType: 'USER',
+    entityId: String(user._id),
+    ...clientMeta(req.ip, req.headers['user-agent']),
+  });
+
+  res.status(201).json({
+    success: true,
+    message: 'Encryption vault created',
+    data: { encryption: encryptionPayload(user) },
+  });
+});
+
+/** PUT /api/users/encryption/recovery — replace the recovery-key envelope. */
+export const updateRecoveryEnvelope = asyncHandler(async (req: Request, res: Response) => {
+  const user = await User.findById(req.user!.id).select(ENCRYPTION_SELECT);
+  if (!user) throw ApiError.notFound('User not found');
+  if (!user.encryption?.publicKey) {
+    throw ApiError.badRequest('Set up your encryption vault first.');
+  }
+
+  user.encryption.recoveryWrappedVaultKey = req.body.recoveryWrappedVaultKey;
+  user.encryption.recoveryWrapIv = req.body.recoveryWrapIv;
+  await user.save();
+
+  res.json({
+    success: true,
+    message: 'Recovery phrase updated',
+    data: {},
+  });
+});
 
 export const getProfile = asyncHandler(async (req: Request, res: Response) => {
   const user = await User.findById(req.user!.id);
@@ -25,18 +129,12 @@ export const getProfile = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const updateProfile = asyncHandler(async (req: Request, res: Response) => {
-  const { fullName, walletAddress } = req.body as {
-    fullName?: string;
-    walletAddress?: string;
-  };
+  const { fullName } = req.body as { fullName?: string };
 
   const user = await User.findById(req.user!.id);
   if (!user) throw ApiError.notFound('User not found');
 
   if (fullName !== undefined) user.fullName = fullName;
-  if (walletAddress !== undefined) {
-    user.walletAddress = walletAddress === '' ? undefined : walletAddress.toLowerCase();
-  }
 
   await user.save();
 
@@ -45,7 +143,7 @@ export const updateProfile = asyncHandler(async (req: Request, res: Response) =>
     action: 'PROFILE_UPDATE',
     entityType: 'USER',
     entityId: String(user._id),
-    metadata: { fullName: user.fullName, walletAddress: user.walletAddress ?? '' },
+    metadata: { fullName: user.fullName },
     ...clientMeta(req.ip, req.headers['user-agent']),
   });
 
@@ -56,10 +154,100 @@ export const updateProfile = asyncHandler(async (req: Request, res: Response) =>
   });
 });
 
+/**
+ * GET /api/users/wallet/link-message?address=0x…
+ * Issues the canonical message the wallet must sign to be linked. Nothing is
+ * stored: the message carries its own issue time and nonce, and the signature
+ * over it is what proves control.
+ */
+export const getWalletLinkMessage = asyncHandler(async (req: Request, res: Response) => {
+  const { address } = req.query as { address: string };
+  res.json({
+    success: true,
+    message: 'Signing message created',
+    data: { message: createLinkMessage(address) },
+  });
+});
+
+/**
+ * POST /api/users/wallet/link
+ * Links a wallet to the signed-in account after verifying the signature.
+ * Ownership proof is what allows a registration's on-chain owner (msg.sender)
+ * to be tied back to this account.
+ */
+export const linkWallet = asyncHandler(async (req: Request, res: Response) => {
+  const { address, message, signature } = req.body as {
+    address: string;
+    message: string;
+    signature: string;
+  };
+
+  assertValidLinkSignature({ address, message, signature });
+
+  const user = await User.findById(req.user!.id);
+  if (!user) throw ApiError.notFound('User not found');
+
+  const normalized = address.toLowerCase();
+  const previous = user.walletAddress;
+  user.walletAddress = normalized;
+  await user.save();
+
+  await logActivity({
+    userId: String(user._id),
+    action: 'WALLET_LINKED',
+    entityType: 'USER',
+    entityId: String(user._id),
+    metadata: { walletAddress: normalized, previousWalletAddress: previous ?? '' },
+    ...clientMeta(req.ip, req.headers['user-agent']),
+  });
+
+  res.json({
+    success: true,
+    message: 'Wallet linked to your account',
+    data: { user },
+  });
+});
+
+/** POST /api/users/wallet/unlink — requires the account password. */
+export const unlinkWallet = asyncHandler(async (req: Request, res: Response) => {
+  const { password } = req.body as { password: string };
+
+  const user = await User.findById(req.user!.id).select('+passwordHash');
+  if (!user) throw ApiError.notFound('User not found');
+
+  const matches = await bcrypt.compare(password, user.passwordHash);
+  if (!matches) throw ApiError.unauthorized('Incorrect password');
+
+  const previous = user.walletAddress;
+  user.walletAddress = undefined;
+  await user.save();
+
+  await logActivity({
+    userId: String(user._id),
+    action: 'WALLET_UNLINKED',
+    entityType: 'USER',
+    entityId: String(user._id),
+    metadata: { walletAddress: previous ?? '' },
+    ...clientMeta(req.ip, req.headers['user-agent']),
+  });
+
+  res.json({
+    success: true,
+    message: 'Wallet unlinked. On-chain registrations stay permanent.',
+    data: { user },
+  });
+});
+
 export const changePassword = asyncHandler(async (req: Request, res: Response) => {
-  const { currentPassword, newPassword } = req.body as {
+  const { currentPassword, newPassword, vault } = req.body as {
     currentPassword?: string;
     newPassword?: string;
+    vault?: {
+      passwordWrappedVaultKey: string;
+      passwordWrapIv: string;
+      keySalt: string;
+      keyIterations: number;
+    };
   };
   if (!currentPassword || !newPassword || newPassword.length < 8) {
     throw ApiError.badRequest(
@@ -67,11 +255,25 @@ export const changePassword = asyncHandler(async (req: Request, res: Response) =
     );
   }
 
-  const user = await User.findById(req.user!.id).select('+passwordHash');
+  const user = await User.findById(req.user!.id).select(`+passwordHash ${ENCRYPTION_SELECT}`);
   if (!user) throw ApiError.notFound('User not found');
 
   const matches = await bcrypt.compare(currentPassword, user.passwordHash);
   if (!matches) throw ApiError.unauthorized('Current password is incorrect');
+
+  // Changing the login password must also re-wrap the vault key; otherwise
+  // every encrypted document would become permanently unreachable.
+  if (user.encryption?.publicKey) {
+    if (!vault) {
+      throw ApiError.badRequest(
+        'The encryption vault must be re-wrapped when changing your password. Unlock your vault and try again.'
+      );
+    }
+    user.encryption.passwordWrappedVaultKey = vault.passwordWrappedVaultKey;
+    user.encryption.passwordWrapIv = vault.passwordWrapIv;
+    user.encryption.keySalt = vault.keySalt;
+    user.encryption.keyIterations = vault.keyIterations;
+  }
 
   user.passwordHash = await bcrypt.hash(newPassword, 12);
   await user.save();

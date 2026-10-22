@@ -8,10 +8,16 @@ import { asyncHandler } from '../middleware/errorHandler';
 import { ApiError } from '../utils/ApiError';
 import { logActivity, clientMeta } from '../services/activityService';
 import { createOtp, verifyOtp, rateLimitRemaining } from '../services/otpService';
-import { sendOtpEmail, isEmailConfigured } from '../services/emailService';
+import { sendOtpEmail } from '../services/emailService';
 import { sendOtpSms } from '../services/smsService';
 
 const VERIFY_TOKEN_TTL = '10m';
+const RECOVERY_TOKEN_TTL = '10m';
+const ENCRYPTION_SELECT =
+  '+encryption.encryptedPrivateKey +encryption.privateKeyIv ' +
+  '+encryption.passwordWrappedVaultKey +encryption.passwordWrapIv ' +
+  '+encryption.recoveryWrappedVaultKey +encryption.recoveryWrapIv ' +
+  '+encryption.keySalt +encryption.keyIterations';
 
 const publicUser = (user: {
   _id: unknown;
@@ -54,9 +60,9 @@ const signVerifyToken = (payload: { id: string; role: string; email: string }) =
     { algorithm: 'HS256', expiresIn: VERIFY_TOKEN_TTL } as jwt.SignOptions
   );
 
-/** Surface the plaintext OTP on-screen only when email cannot be delivered (dev/test). */
-const devCodeFor = (code: string): string | undefined =>
-  !isEmailConfigured() || env.isTest ? code : undefined;
+/** Surface the plaintext OTP on-screen only when email could not be delivered. */
+const devCodeFor = (code: string, delivered: boolean): string | undefined =>
+  !delivered || env.isTest ? code : undefined;
 
 export const register = asyncHandler(async (req: Request, res: Response) => {
   const { fullName, email, password } = req.body as {
@@ -85,7 +91,7 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
   // Mandatory email verification: create the account but do NOT issue a session
   // until the user proves ownership of the email address with the OTP below.
   const code = await createOtp(String(user._id), 'email_verify', 'email');
-  await sendOtpEmail(user.email, code);
+  const delivered = await sendOtpEmail(user.email, code);
 
   const verifyToken = signVerifyToken({
     id: String(user._id),
@@ -109,7 +115,7 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
       requiresEmailVerification: true,
       mfaToken: verifyToken,
       method: 'email_verify',
-      devCode: devCodeFor(code),
+      devCode: devCodeFor(code, delivered),
       user: publicUser(user),
     },
   });
@@ -195,12 +201,12 @@ export const resendVerification = asyncHandler(async (req: Request, res: Respons
   }
 
   const code = await createOtp(String(user._id), 'email_verify', 'email');
-  await sendOtpEmail(user.email, code);
+  const delivered = await sendOtpEmail(user.email, code);
 
   res.json({
     success: true,
     message: 'A fresh verification code was sent.',
-    data: { devCode: devCodeFor(code) },
+    data: { devCode: devCodeFor(code, delivered) },
   });
 });
 
@@ -221,7 +227,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
   // before email verification existed) re-enter this path once until verified.
   if (!user.emailVerified) {
     const code = await createOtp(String(user._id), 'email_verify', 'email');
-    await sendOtpEmail(user.email, code);
+    const delivered = await sendOtpEmail(user.email, code);
     return res.json({
       success: true,
       message: 'Please verify your email address to continue.',
@@ -233,7 +239,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
           email: user.email,
         }),
         method: 'email_verify',
-        devCode: devCodeFor(code),
+        devCode: devCodeFor(code, delivered),
         user: publicUser(user),
       },
     });
@@ -243,7 +249,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
   // challenge, regardless of whether the user has individually enabled 2FA.
   // This makes email OTP mandatory for all accounts.
   const code = await createOtp(String(user._id), 'mfa_login', 'email');
-  await sendOtpEmail(user.email, code);
+  const delivered = await sendOtpEmail(user.email, code);
 
   const mfaToken = jwt.sign(
     { id: String(user._id), role: user.role, email: user.email, type: 'mfa' },
@@ -257,14 +263,161 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
       requiresTwoFactor: true,
       mfaToken,
       method: 'email_otp',
-      // Dev/test fallback: when SMTP is not configured the OTP cannot be
-      // delivered, so surface the code directly to keep login usable. This is
-      // omitted once real SMTP credentials are set (deployed), where the code
-      // is only emailed. In automated tests the code is always surfaced so the
-      // suite does not depend on external email delivery.
-      devCode: !isEmailConfigured() || env.isTest ? code : undefined,
+      // Dev/test fallback: when email cannot be delivered, surface the code
+      // directly to keep login usable. Omitted once Resend/SMTP is working.
+      devCode: devCodeFor(code, delivered),
       user: publicUser(user),
     },
+  });
+});
+
+/**
+ * POST /api/auth/recover/start
+ * Sends an email OTP and returns the recovery-key envelope. The server never
+ * sees the recovery phrase or the vault key; the client proves possession by
+ * successfully decrypting the envelope locally.
+ */
+export const startVaultRecovery = asyncHandler(async (req: Request, res: Response) => {
+  const { email } = req.body as { email: string };
+
+  const user = await User.findOne({ email }).select(`+emailVerified ${ENCRYPTION_SELECT}`);
+  if (!user || !user.isActive) {
+    throw ApiError.notFound('No active account was found for this email.');
+  }
+
+  const hasVault = !!user.encryption?.publicKey;
+  if (
+    hasVault &&
+    (!user.encryption?.recoveryWrappedVaultKey || !user.encryption?.recoveryWrapIv)
+  ) {
+    throw ApiError.badRequest(
+      'This account has an encryption vault but no recovery key, so the password cannot be reset safely.'
+    );
+  }
+
+  const remaining = await rateLimitRemaining(String(user._id), 'vault_recovery', 'email');
+  if (remaining > 0) {
+    throw ApiError.tooManyRequests(
+      `Please wait ${Math.ceil(remaining / 1000)}s before requesting another code.`
+    );
+  }
+
+  const code = await createOtp(String(user._id), 'vault_recovery', 'email');
+  const delivered = await sendOtpEmail(user.email, code);
+
+  const recoveryToken = jwt.sign(
+    { id: String(user._id), type: 'vault_recovery' },
+    env.jwtSecret,
+    { algorithm: 'HS256', expiresIn: RECOVERY_TOKEN_TTL } as jwt.SignOptions
+  );
+
+  res.json({
+    success: true,
+    message: 'Recovery code sent to your email.',
+    data: {
+      recoveryToken,
+      email: user.email,
+      hasVault,
+      recoveryWrappedVaultKey: user.encryption?.recoveryWrappedVaultKey,
+      recoveryWrapIv: user.encryption?.recoveryWrapIv,
+      devCode: devCodeFor(code, delivered),
+    },
+  });
+});
+
+/**
+ * POST /api/auth/recover/complete
+ * Verifies the OTP and installs a new password + password-wrapped vault key.
+ * The recovery envelope must be unchanged, so a valid recovery phrase remains
+ * valid after the reset.
+ */
+export const completeVaultRecovery = asyncHandler(async (req: Request, res: Response) => {
+  const {
+    recoveryToken,
+    code,
+    newPassword,
+    passwordWrappedVaultKey,
+    passwordWrapIv,
+    keySalt,
+    keyIterations,
+    recoveryWrappedVaultKey,
+    recoveryWrapIv,
+  } = req.body as {
+    recoveryToken: string;
+    code: string;
+    newPassword: string;
+    passwordWrappedVaultKey?: string;
+    passwordWrapIv?: string;
+    keySalt?: string;
+    keyIterations?: number;
+    recoveryWrappedVaultKey?: string;
+    recoveryWrapIv?: string;
+  };
+
+  let decoded: { id: string; type?: string };
+  try {
+    decoded = jwt.verify(recoveryToken, env.jwtSecret, { algorithms: ['HS256'] }) as {
+      id: string;
+      type?: string;
+    };
+  } catch {
+    throw ApiError.unauthorized('Your recovery session has expired. Start again.');
+  }
+  if (decoded.type !== 'vault_recovery' || !decoded.id) {
+    throw ApiError.unauthorized('Invalid recovery session.');
+  }
+
+  const user = await User.findById(decoded.id).select(`+passwordHash ${ENCRYPTION_SELECT}`);
+  if (!user || !user.isActive) {
+    throw ApiError.unauthorized('This account could not be authenticated.');
+  }
+  // Accounts without an encryption vault can reset their password with the
+  // emailed code alone. Accounts with a vault must prove possession of the
+  // recovery phrase so the vault key can be re-wrapped for the new password.
+  const hasVault = !!user.encryption?.publicKey;
+  if (hasVault) {
+    if (!user.encryption?.recoveryWrappedVaultKey) {
+      throw ApiError.badRequest('This account does not have an encryption recovery key set up.');
+    }
+    if (
+      recoveryWrappedVaultKey !== user.encryption.recoveryWrappedVaultKey ||
+      recoveryWrapIv !== user.encryption.recoveryWrapIv
+    ) {
+      throw ApiError.badRequest('The recovery key no longer matches this vault.');
+    }
+    if (!passwordWrappedVaultKey || !passwordWrapIv || !keySalt || !keyIterations) {
+      throw ApiError.badRequest(
+        'The encryption vault must be re-wrapped with your new password. Enter your recovery phrase.'
+      );
+    }
+  }
+
+  const valid = await verifyOtp(String(user._id), code, 'vault_recovery', 'email');
+  if (!valid) {
+    throw ApiError.unauthorized('Invalid recovery code.');
+  }
+
+  user.passwordHash = await bcrypt.hash(newPassword, 12);
+  if (hasVault && user.encryption) {
+    user.encryption.passwordWrappedVaultKey = passwordWrappedVaultKey;
+    user.encryption.passwordWrapIv = passwordWrapIv;
+    user.encryption.keySalt = keySalt;
+    user.encryption.keyIterations = keyIterations;
+  }
+  await user.save();
+
+  await logActivity({
+    userId: String(user._id),
+    action: 'VAULT_RECOVERED',
+    entityType: 'USER',
+    entityId: String(user._id),
+    ...clientMeta(req.ip, req.headers['user-agent']),
+  });
+
+  res.json({
+    success: true,
+    message: 'Password reset. Sign in with your new password.',
+    data: {},
   });
 });
 

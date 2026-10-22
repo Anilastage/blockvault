@@ -198,12 +198,12 @@ export const startEmailOtpSetup = asyncHandler(async (req: Request, res: Respons
   }
 
   const code = await createOtp(String(user._id), 'mfa_setup', 'email');
-  await sendOtpEmail(user.email, code);
+  const delivered = await sendOtpEmail(user.email, code);
 
   res.json({
     success: true,
     message: 'A verification code has been sent to your email.',
-    data: {},
+    data: { devCode: delivered ? undefined : code },
   });
 });
 

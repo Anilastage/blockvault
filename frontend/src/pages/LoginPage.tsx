@@ -1,10 +1,11 @@
-import { useState } from 'react';
+﻿import { useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { LogIn, ShieldAlert, MailCheck, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useVault } from '@/context/VaultContext';
 import { useToast } from '@/context/ToastContext';
 import { getApiErrorMessage } from '@/services/api';
 import { authService } from '@/services/authService';
@@ -30,7 +31,9 @@ type MfaValues = z.infer<typeof mfaSchema>;
 
 export const LoginPage = () => {
   const { login, completeMfa, completeEmailVerification } = useAuth();
+  const vault = useVault();
   const toast = useToast();
+  const passwordRef = useRef('');
   const navigate = useNavigate();
   const location = useLocation() as { state?: { from?: string } };
   const [params] = useSearchParams();
@@ -50,6 +53,17 @@ export const LoginPage = () => {
     navigate(next, { replace: true });
   };
 
+  const prepareVault = (user: User, password: string) => {
+    if (!password) return;
+    void vault.unlockOrCreate(password, user.id).catch(() => {
+      toast(
+        'Signed in, but your encryption vault could not be unlocked. Open any encrypted document to try again.',
+        'warning',
+        'Vault locked'
+      );
+    });
+  };
+
   const {
     register: field,
     handleSubmit,
@@ -64,6 +78,7 @@ export const LoginPage = () => {
 
   const onSubmit = async (values: FormValues) => {
     setServerError('');
+    passwordRef.current = values.password;
     try {
       const result = await login(values.email, values.password);
       if (result.requiresEmailVerification) {
@@ -79,6 +94,7 @@ export const LoginPage = () => {
         setStage('mfa');
         return;
       }
+      prepareVault(result.user, values.password);
       toast(`Welcome back, ${result.user.fullName.split(' ')[0]}!`, 'success');
       goToDashboard(result.user);
     } catch (err) {
@@ -92,6 +108,7 @@ export const LoginPage = () => {
     setMfaError('');
     try {
       const user = await completeEmailVerification(mfaToken, values.code);
+      prepareVault(user, passwordRef.current);
       toast(`Email verified. Welcome back, ${user.fullName.split(' ')[0]}!`, 'success');
       goToDashboard(user);
     } catch (err) {
@@ -119,6 +136,7 @@ export const LoginPage = () => {
     setMfaError('');
     try {
       const user = await completeMfa(mfaToken, values.code);
+      prepareVault(user, passwordRef.current);
       toast(`Welcome back, ${user.fullName.split(' ')[0]}!`, 'success');
       goToDashboard(user);
     } catch (err) {
@@ -157,7 +175,7 @@ export const LoginPage = () => {
             Trust Every Record.
           </p>
           <p className="mt-3 text-sm leading-relaxed text-slate-400">
-            Cryptographic document fingerprints anchored on an Ethereum-compatible blockchain — proof of
+            Cryptographic document fingerprints anchored on an Ethereum-compatible blockchain â€” proof of
             integrity that never expires.
           </p>
         </div>
@@ -176,7 +194,7 @@ export const LoginPage = () => {
               </h1>
               <p className="mt-1.5 text-sm text-slate-500">
                 {stage === 'verify-email'
-                  ? 'Your email still needs to be confirmed. We\'ve sent you a 6-digit code — enter it to finish activating your account.'
+                  ? 'Your email still needs to be confirmed. We\'ve sent you a 6-digit code â€” enter it to finish activating your account.'
                   : mfaMethod === 'totp'
                     ? 'Enter the 6-digit code from your authenticator app, or one of your recovery codes.'
                     : mfaMethod === 'email_otp'
@@ -237,7 +255,7 @@ export const LoginPage = () => {
                   onClick={() => setStage('credentials')}
                   className="font-medium text-primary-600 hover:text-primary-500"
                 >
-                  ← Back to sign in
+                  â† Back to sign in
                 </button>
               </div>
             </>
@@ -248,7 +266,7 @@ export const LoginPage = () => {
                 Sign in to your BlockVault account
                 {params.get('expired') && (
                   <span className="mt-1 block font-medium text-warning-600">
-                    Your session expired — please sign in again.
+                    Your session expired â€” please sign in again.
                   </span>
                 )}
               </p>
@@ -271,10 +289,18 @@ export const LoginPage = () => {
                   label="Password"
                   type="password"
                   autoComplete="current-password"
-                  placeholder="••••••••"
+                  placeholder="�?��?��?��?��?��?��?��?�"
                   error={errors.password?.message}
                   {...field('password')}
                 />
+                <div className="flex justify-end">
+                  <Link
+                    to="/recover"
+                    className="text-xs font-medium text-primary-600 hover:text-primary-500"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
                 <Button type="submit" fullWidth size="lg" loading={isSubmitting} icon={<LogIn className="h-4 w-4" />}>
                   Sign in
                 </Button>
@@ -293,3 +319,5 @@ export const LoginPage = () => {
     </div>
   );
 };
+
+

@@ -1,11 +1,26 @@
 import mongoose, { Schema, type Document as MongoDocument, type Model } from 'mongoose';
 
+export interface UserEncryption {
+  version: number;
+  publicKey?: string;
+  encryptedPrivateKey?: string;
+  privateKeyIv?: string;
+  passwordWrappedVaultKey?: string;
+  passwordWrapIv?: string;
+  recoveryWrappedVaultKey?: string;
+  recoveryWrapIv?: string;
+  keySalt?: string;
+  keyIterations?: number;
+}
+
 export interface IUser extends MongoDocument {
   fullName: string;
   email: string;
   passwordHash: string;
   role: 'USER' | 'ADMIN';
   walletAddress?: string;
+  /** End-to-end encryption identity and wrapped vault key material. */
+  encryption?: UserEncryption;
   profileImage?: string;
   isActive: boolean;
   lastLoginAt?: Date;
@@ -25,6 +40,22 @@ export interface IUser extends MongoDocument {
   createdAt?: Date;
   updatedAt?: Date;
 }
+
+const userEncryptionSchema = new Schema<UserEncryption>(
+  {
+    version: { type: Number, default: 1 },
+    publicKey: { type: String },
+    encryptedPrivateKey: { type: String, select: false },
+    privateKeyIv: { type: String, select: false },
+    passwordWrappedVaultKey: { type: String, select: false },
+    passwordWrapIv: { type: String, select: false },
+    recoveryWrappedVaultKey: { type: String, select: false },
+    recoveryWrapIv: { type: String, select: false },
+    keySalt: { type: String, select: false },
+    keyIterations: { type: Number, select: false },
+  },
+  { _id: false }
+);
 
 const userSchema = new Schema<IUser>(
   {
@@ -47,6 +78,7 @@ const userSchema = new Schema<IUser>(
     },
     phoneNumber: { type: String, trim: true, default: undefined },
     emailVerified: { type: Boolean, default: false, index: true },
+    encryption: { type: userEncryptionSchema, default: undefined },
   },
   { timestamps: true }
 );

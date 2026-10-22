@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import {
   register,
   login,
@@ -6,6 +6,8 @@ import {
   resendVerification,
   getMe,
   logout,
+  startVaultRecovery,
+  completeVaultRecovery,
 } from '../controllers/authController';
 import {
   start2FASetup,
@@ -29,6 +31,8 @@ import {
   loginTwoFactorSchema,
   otpCodeSchema,
   smsSetupSchema,
+  recoverVaultStartSchema,
+  recoverVaultCompleteSchema,
 } from '../validators';
 import { protect } from '../middleware/auth';
 import { authLimiter } from '../middleware/rateLimiter';
@@ -37,6 +41,13 @@ const router = Router();
 
 router.post('/register', authLimiter, validate(registerSchema), register);
 router.post('/login', authLimiter, validate(loginSchema), login);
+router.post('/recover/start', authLimiter, validate(recoverVaultStartSchema), startVaultRecovery);
+router.post(
+  '/recover/complete',
+  authLimiter,
+  validate(recoverVaultCompleteSchema),
+  completeVaultRecovery
+);
 router.post('/verify-email', authLimiter, validate(verifyEmailSchema), verifyEmail);
 router.post('/resend-verification', authLimiter, validate(resendVerificationSchema), resendVerification);
 router.post('/2fa/login', authLimiter, validate(loginTwoFactorSchema), verifyLoginTwoFactor);

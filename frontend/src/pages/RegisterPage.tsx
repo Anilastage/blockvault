@@ -1,10 +1,11 @@
-import { useState } from 'react';
+﻿import { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { MailCheck, RefreshCw, UserPlus } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useVault } from '@/context/VaultContext';
 import { useToast } from '@/context/ToastContext';
 import { getApiErrorMessage } from '@/services/api';
 import { authService } from '@/services/authService';
@@ -36,7 +37,9 @@ type CodeValues = z.infer<typeof codeSchema>;
 
 export const RegisterPage = () => {
   const { register, completeEmailVerification } = useAuth();
+  const vault = useVault();
   const toast = useToast();
+  const passwordRef = useRef('');
   const navigate = useNavigate();
 
   const [stage, setStage] = useState<'form' | 'verify'>('form');
@@ -60,6 +63,7 @@ export const RegisterPage = () => {
 
   const onSubmit = async (values: FormValues) => {
     setSubmitError('');
+    passwordRef.current = values.password;
     try {
       const challenge = await register(values);
       setVerifyToken(challenge.mfaToken);
@@ -90,6 +94,13 @@ export const RegisterPage = () => {
     setVerifyError('');
     try {
       const user = await completeEmailVerification(verifyToken, values.code);
+      void vault.unlockOrCreate(passwordRef.current, user.id).catch(() => {
+        toast(
+          'Account created, but your encryption vault could not be set up. Open any encrypted document to try again.',
+          'warning',
+          'Vault setup pending'
+        );
+      });
       toast(`Email verified. Welcome to BlockVault, ${user.fullName.split(' ')[0]}!`, 'success');
       navigate(user.role === 'ADMIN' ? '/admin' : '/dashboard', { replace: true });
     } catch (err) {
@@ -190,7 +201,7 @@ export const RegisterPage = () => {
                 onClick={() => setStage('form')}
                 className="font-medium text-slate-500 hover:text-slate-700"
               >
-                ← Back
+                â† Back
               </button>
             </div>
           </div>
@@ -229,15 +240,15 @@ export const RegisterPage = () => {
           </p>
           <ul className="mx-auto mt-6 max-w-xs space-y-3 text-left text-sm text-slate-400">
             <li className="flex items-start gap-2.5">
-              <span className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-primary-500/20 text-center text-xs leading-[20px] text-primary-300">✓</span>
+              <span className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-primary-500/20 text-center text-xs leading-[20px] text-primary-300">âœ“</span>
               Register document hashes on-chain with one click
             </li>
             <li className="flex items-start gap-2.5">
-              <span className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-primary-500/20 text-center text-xs leading-[20px] text-primary-300">✓</span>
+              <span className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-primary-500/20 text-center text-xs leading-[20px] text-primary-300">âœ“</span>
               Detect any modification instantly via digital fingerprint
             </li>
             <li className="flex items-start gap-2.5">
-              <span className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-primary-500/20 text-center text-xs leading-[20px] text-primary-300">✓</span>
+              <span className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-primary-500/20 text-center text-xs leading-[20px] text-primary-300">âœ“</span>
               Keep a permanent, auditable verification history
             </li>
           </ul>
@@ -277,7 +288,7 @@ export const RegisterPage = () => {
               label="Password"
               type="password"
               autoComplete="new-password"
-              placeholder="••••••••"
+              placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
               hint="Minimum 8 characters, with letters and numbers."
               error={errors.password?.message}
               {...field('password')}
@@ -286,7 +297,7 @@ export const RegisterPage = () => {
               label="Confirm password"
               type="password"
               autoComplete="new-password"
-              placeholder="••••••••"
+              placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
               error={errors.confirmPassword?.message}
               {...field('confirmPassword')}
             />

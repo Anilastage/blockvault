@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import {
   createDocument,
   registerDocument,
@@ -12,6 +12,8 @@ import {
   deleteDocument,
   getDocumentTags,
   updateDocumentOrganization,
+  getShareKey,
+  setShareKey,
 } from '../controllers/documentController';
 import { documentUpload } from '../middleware/upload';
 import { validate } from '../middleware/validate';
@@ -19,6 +21,7 @@ import {
   createDocumentSchema,
   mongoIdParam,
   registerDocumentTxSchema,
+  shareKeySchema,
   updateDocumentOrganizationSchema,
 } from '../validators';
 import { protect } from '../middleware/auth';
@@ -34,6 +37,11 @@ router.post(
     // Multer delivers multipart fields as strings; coerce numeric fields
     // before Zod validation so the shared schema stays type-safe.
     if (typeof req.body?.fileSize === 'string') req.body.fileSize = Number(req.body.fileSize);
+    if (typeof req.body?.ciphertextSize === 'string' && req.body.ciphertextSize !== '') {
+      req.body.ciphertextSize = Number(req.body.ciphertextSize);
+    } else if (req.body?.ciphertextSize === '') {
+      delete req.body.ciphertextSize;
+    }
     if (typeof req.body?.blockNumber === 'string' && req.body.blockNumber !== '') {
       req.body.blockNumber = Number(req.body.blockNumber);
     } else if (req.body?.blockNumber === '') {
@@ -67,6 +75,13 @@ router.post(
   '/:id/download-code/regenerate',
   validate(mongoIdParam, 'params'),
   regenerateDownloadCodeHandler
+);
+router.get('/:id/share-key', validate(mongoIdParam, 'params'), getShareKey);
+router.put(
+  '/:id/share-key',
+  validate(mongoIdParam, 'params'),
+  validate(shareKeySchema),
+  setShareKey
 );
 router.delete('/:id', validate(mongoIdParam, 'params'), deleteDocument);
 

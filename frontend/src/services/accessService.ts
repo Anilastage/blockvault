@@ -1,4 +1,5 @@
-import { api, unwrap, getBlobError, saveBlob } from './api';
+﻿import { api, unwrap, getBlobError } from './api';
+import { saveDownloadResponse } from '@/utils/encryptedDownload';
 import type { AccessRequestItem, DownloadRecordItem } from '@/types';
 
 export const accessService = {
@@ -21,8 +22,8 @@ export const accessService = {
     return unwrap<{ requests: AccessRequestItem[] }>(res.data).requests;
   },
 
-  async approve(id: string): Promise<AccessRequestItem> {
-    const res = await api.post(`/access/requests/${id}/approve`);
+  async approve(id: string, requesterWrappedKey?: string): Promise<AccessRequestItem> {
+    const res = await api.post(`/access/requests/${id}/approve`, { requesterWrappedKey });
     return unwrap<{ request: AccessRequestItem }>(res.data).request;
   },
 
@@ -35,7 +36,7 @@ export const accessService = {
   async downloadWithToken(token: string, fileName: string): Promise<void> {
     try {
       const res = await api.get(`/access/requests/${token}/download`, { responseType: 'blob' });
-      saveBlob(res.data as Blob, fileName);
+      await saveDownloadResponse(res, fileName);
     } catch (err) {
       throw await getBlobError(err);
     }

@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+﻿import crypto from 'crypto';
 import path from 'path';
 import type { Request, Response } from 'express';
 import { DocumentModel } from '../models/Document';
@@ -10,6 +10,7 @@ import { ApiError } from '../utils/ApiError';
 import { createNotification } from '../services/notificationService';
 import { logActivity, clientMeta } from '../services/activityService';
 import { storageProvider } from '../services/storageService';
+import { setEncryptedFileHeaders } from '../utils/encryptionHeaders';
 
 const ACCESS_LINK_TTL_MS = 15 * 60 * 1000; // Links stay valid for 15 minutes.
 
@@ -36,7 +37,7 @@ const expireStale = async (requests: IAccessRequest[]): Promise<void> => {
   }
 };
 
-/** POST /api/access/requests — requester asks the owner for a copy. */
+/** POST /api/access/requests â€” requester asks the owner for a copy. */
 export const requestAccess = asyncHandler(async (req: Request, res: Response) => {
   const { documentId, reason } = req.body as { documentId: string; reason?: string };
 
@@ -103,7 +104,7 @@ export const requestAccess = asyncHandler(async (req: Request, res: Response) =>
   });
 });
 
-/** GET /api/access/requests/mine — requests I sent (outbox). */
+/** GET /api/access/requests/mine â€” requests I sent (outbox). */
 export const getMyRequests = asyncHandler(async (req: Request, res: Response) => {
   const query: Record<string, unknown> = { requesterId: req.user!.id };
   const status = req.query.status as string | undefined;
@@ -123,7 +124,7 @@ export const getMyRequests = asyncHandler(async (req: Request, res: Response) =>
   res.json({ success: true, message: 'Access requests retrieved', data: { requests } });
 });
 
-/** GET /api/access/requests — requests on my documents (inbox). */
+/** GET /api/access/requests â€” requests on my documents (inbox). */
 export const getIncomingRequests = asyncHandler(async (req: Request, res: Response) => {
   const status = (req.query.status as string | undefined) ?? 'PENDING';
   const myDocs = await DocumentModel.find({ userId: req.user!.id }).select('_id');
@@ -136,8 +137,8 @@ export const getIncomingRequests = asyncHandler(async (req: Request, res: Respon
 
   const requests = await AccessRequest.find(query)
     .sort({ createdAt: -1 })
-    .populate('requesterId', 'fullName email')
-    .populate('documentId', 'originalName fileSize mimeType');
+    .populate('requesterId', 'fullName email encryption.publicKey')
+    .populate('documentId', 'originalName fileSize mimeType encryption');
 
   res.json({
     success: true,
@@ -164,7 +165,17 @@ export const approveRequest = asyncHandler(async (req: Request, res: Response) =
     throw ApiError.conflict('This request has already been decided.');
   }
 
+  const { requesterWrappedKey } = req.body as { requesterWrappedKey?: string };
+  const documentRef = request.documentId as unknown as { _id?: unknown };
+  const documentRecord = await DocumentModel.findById(documentRef._id ?? request.documentId);
+  if (documentRecord?.encryption && !requesterWrappedKey) {
+    throw ApiError.badRequest(
+      'This document is end-to-end encrypted. Provide the document key wrapped for the requester before approving.'
+    );
+  }
+
   request.status = 'APPROVED';
+  request.requesterWrappedKey = documentRecord?.encryption ? requesterWrappedKey : undefined;
   request.accessToken = crypto.randomBytes(32).toString('hex');
   request.expiresAt = new Date(Date.now() + ACCESS_LINK_TTL_MS);
   request.decidedBy = req.user!.id;
@@ -252,7 +263,7 @@ export const downloadWithToken = asyncHandler(async (req: Request, res: Response
   );
 
   if (!request) {
-    // Lost the race, already consumed, or expired — give a helpful message.
+    // Lost the race, already consumed, or expired â€” give a helpful message.
     const current = await AccessRequest.findById(existing._id);
     if (current && current.status === 'APPROVED') {
       throw ApiError.badRequest('This download link has expired. Request a new one from the owner.');
@@ -287,6 +298,13 @@ export const downloadWithToken = asyncHandler(async (req: Request, res: Response
     metadata: { requestId: String(request._id) },
   });
 
+  if (document.encryption) {
+    setEncryptedFileHeaders(res, document, {
+      wrappedKey: request.requesterWrappedKey,
+      keyIv: document.encryption.keyIv,
+      wrapAlg: 'RSA-OAEP',
+    });
+  }
   res.setHeader('Content-Type', document.mimeType);
   res.setHeader(
     'Content-Disposition',

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+﻿import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   FileText,
@@ -92,7 +92,7 @@ export const ShareDocumentPage = () => {
                       {doc.originalName}
                     </span>
                     <span className="block text-xs text-slate-500">
-                      {formatBytes(doc.fileSize)} · {formatDate(doc.uploadedAt)}
+                      {formatBytes(doc.fileSize)} Â· {formatDate(doc.uploadedAt)}
                     </span>
                   </span>
                   <span className="flex shrink-0 items-center gap-1 text-xs font-semibold text-primary-600">
@@ -120,12 +120,12 @@ export const ShareDocumentPage = () => {
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-dark">{selected.originalName}</p>
                 <p className="text-xs text-slate-500">
-                  {formatBytes(selected.fileSize)} · {formatDate(selected.uploadedAt)}
+                  {formatBytes(selected.fileSize)} Â· {formatDate(selected.uploadedAt)}
                 </p>
               </div>
             </div>
 
-            <ShareDownloadCode documentId={selected._id} />
+            <ShareDownloadCode document={selected} />
 
             <div className="mt-4 flex items-start gap-2 rounded-lg bg-primary-50 px-3 py-2.5 text-xs text-slate-600">
               <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary-500" />

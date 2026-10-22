@@ -22,16 +22,10 @@ services:
         value: 0xe68C76d721952aECF9F19A5461adF0BD2b0801D4
       - key: BLOCKCHAIN_EXPLORER_URL
         value: https://sepolia.etherscan.io
+      - key: RESEND_API_KEY
+        sync: false
       - key: SMTP_ENABLED
-        value: "true"
-      - key: SMTP_HOST
-        value: smtp.gmail.com
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASS
-        sync: false
+        value: "false"
       - key: EMAIL_FROM_ADDRESS
         sync: false
       - key: EMAIL_FROM_NAME

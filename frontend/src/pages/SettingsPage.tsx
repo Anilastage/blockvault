@@ -10,6 +10,9 @@ import {
   AlertTriangle,
   Trash2,
   ExternalLink,
+  Lock,
+  KeyRound,
+  Unlock,
 } from "lucide-react";
 import { userService } from "@/services/userService";
 import { blockchainService } from "@/services/blockchainService";
@@ -18,6 +21,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useWallet } from "@/context/WalletContext";
 import { useToast } from "@/context/ToastContext";
 import { useTheme } from "@/context/ThemeContext";
+import { useVault } from "@/context/VaultContext";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -258,6 +262,7 @@ const GeneralSection = () => {
           </Row>{" "}
         </div>{" "}
       </Card>{" "}
+      <VaultStatusCard />{" "}
       <Card className="p-6">
         {" "}
         <h3 className="mb-4 font-semibold text-dark">Sessions</h3>{" "}
@@ -283,6 +288,100 @@ const GeneralSection = () => {
     </>
   );
 };
+const VaultStatusCard = () => {
+  const vault = useVault();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+
+  const unlock = async () => {
+    setBusy(true);
+    try {
+      await vault.ensureUnlocked();
+      toast("Encryption vault unlocked.", "success");
+    } catch (err) {
+      toast(getApiErrorMessage(err), "error", "Could not unlock vault");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const lock = () => {
+    vault.lock();
+    toast("Encryption vault locked.", "info");
+  };
+
+  const regenerate = async () => {
+    setBusy(true);
+    try {
+      await vault.regenerateRecoveryPhrase();
+      toast("A new recovery phrase has been generated.", "success");
+    } catch (err) {
+      toast(getApiErrorMessage(err), "error", "Could not regenerate recovery phrase");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="p-6">
+      {" "}
+      <h3 className="mb-4 flex items-center gap-2 font-semibold text-dark">
+        <Lock className="h-4 w-4 text-primary-500" /> Encryption Vault
+      </h3>{" "}
+      <div className="divide-y divide-slate-50">
+        <div className="flex flex-col gap-3 pb-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-medium text-dark">
+              {vault.unlocked ? "Vault unlocked in this session" : "Vault locked"}
+            </p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {vault.unlocked
+                ? "Your document keys are available in this tab only. Lock the vault when you step away."
+                : "Unlock with your account password to upload, download, or share encrypted documents."}
+            </p>
+          </div>
+          {vault.unlocked ? (
+            <Button
+              size="sm"
+              variant="outline"
+              icon={<Lock className="h-4 w-4" />}
+              onClick={lock}
+            >
+              Lock Vault
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              loading={busy}
+              icon={<Unlock className="h-4 w-4" />}
+              onClick={() => void unlock()}
+            >
+              Unlock Vault
+            </Button>
+          )}
+        </div>
+        <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-medium text-dark">Recovery phrase</p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Regenerate your recovery phrase. The previous phrase stops working immediately.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            loading={busy}
+            icon={<KeyRound className="h-4 w-4" />}
+            onClick={() => void regenerate()}
+          >
+            New Recovery Phrase
+          </Button>
+        </div>
+      </div>{" "}
+    </Card>
+  );
+};
+
 /* ---------- Wallet ---------- */ const WalletSection = () => {
   const wallet = useWallet();
   const status = useQuery({

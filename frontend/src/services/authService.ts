@@ -122,7 +122,16 @@ export const authService = {
     return unwrap<{ user: User }>(res.data).user;
   },
 
-  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
-    await api.put('/users/password', { currentPassword, newPassword });
+  async changePassword(
+    currentPassword: string,
+    newPassword: string,
+    vault?: {
+      passwordWrappedVaultKey: string;
+      passwordWrapIv: string;
+      keySalt: string;
+      keyIterations: number;
+    }
+  ): Promise<void> {
+    await api.put('/users/password', { currentPassword, newPassword, vault });
   },
 };

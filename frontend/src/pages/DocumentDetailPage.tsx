@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -274,7 +274,7 @@ export const DocumentDetailPage = () => {
             <div className="flex items-center justify-between gap-3">
               <dt className="text-sm font-medium text-slate-500">Folder</dt>
               <dd className="truncate text-sm text-dark">
-                {doc.folderId ? folders.find((f) => f._id === doc.folderId)?.name ?? '—' : 'Unfiled'}
+                {doc.folderId ? folders.find((f) => f._id === doc.folderId)?.name ?? 'â€”' : 'Unfiled'}
               </dd>
             </div>
             <div>
@@ -308,7 +308,7 @@ export const DocumentDetailPage = () => {
         </Card>
 
         {/* Share by code */}
-        <ShareDownloadCode documentId={doc._id} />
+        <ShareDownloadCode document={doc} />
 
         {/* File info */}
         <Card className="p-5">
@@ -356,11 +356,11 @@ export const DocumentDetailPage = () => {
                     </a>
                   )}
                 </span>
-              ) : '—'}
+              ) : 'â€”'}
             />
-            <Row label="Recorded in Block" value={doc.blockNumber ?? '—'} />
+            <Row label="Recorded in Block" value={doc.blockNumber ?? 'â€”'} />
             <Row label="Registration Contract" value={<HashDisplay value={doc.contractAddress ?? ''} head={8} tail={6} copyable={false} />} />
-            <Row label="Network ID" value={doc.chainId ?? '—'} />
+            <Row label="Network ID" value={doc.chainId ?? 'â€”'} />
             <Row
               label="Owner"
               value={
@@ -451,7 +451,7 @@ export const DocumentDetailPage = () => {
               </p>
               {doc.blockchainStatus === 'CONFIRMED' && isCurrentVersion && (
                 <Link to={`/upload?parent=${doc._id}`} className="mt-1.5 text-sm font-medium text-primary-600 hover:underline">
-                  Upload a new version →
+                  Upload a new version â†’
                 </Link>
               )}
             </div>
@@ -482,7 +482,7 @@ export const DocumentDetailPage = () => {
                       <td className="table-td"><VerificationBadge status={v.result} /></td>
                       <td className="table-td"><HashDisplay value={v.calculatedHash} head={10} tail={8} /></td>
                       <td className="table-td whitespace-nowrap text-slate-500">{formatDateTime(v.verifiedAt)}</td>
-                      <td className="table-td">{v.blockNumber ?? '—'}</td>
+                      <td className="table-td">{v.blockNumber ?? 'â€”'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -493,7 +493,7 @@ export const DocumentDetailPage = () => {
               <Link2 className="mb-2 h-7 w-7 text-slate-300" />
               <p className="text-sm text-slate-500">No verification attempts recorded for this document yet.</p>
               <Link to={`/verify?document=${doc._id}`} className="mt-1.5 text-sm font-medium text-primary-600 hover:underline">
-                Verify it now →
+                Verify it now â†’
               </Link>
             </div>
           )}
@@ -543,7 +543,7 @@ export const DocumentDetailPage = () => {
                         </span>
                       </td>
                       <td className="table-td whitespace-nowrap text-slate-500">{formatDateTime(d.downloadedAt)}</td>
-                      <td className="table-td font-mono text-xs text-slate-400">{d.ipAddress ?? '—'}</td>
+                      <td className="table-td font-mono text-xs text-slate-400">{d.ipAddress ?? 'â€”'}</td>
                     </tr>
                   ))}
                 </tbody>

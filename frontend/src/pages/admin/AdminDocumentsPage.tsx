@@ -105,12 +105,15 @@ export const AdminDocumentsPage = () => {
                       </td>
                       <td className="table-td whitespace-nowrap">
                         {typeof doc.userId === 'object' && doc.userId ? (
-                          <span>
+                          <Link
+                            to={`/admin/users/${doc.userId._id}`}
+                            className="block hover:text-primary-600 hover:underline"
+                          >
                             <span className="block font-medium text-dark">{doc.userId.fullName}</span>
                             <span className="block text-xs text-slate-400">{doc.userId.email}</span>
-                          </span>
+                          </Link>
                         ) : (
-                          '—'
+                          '�?"'
                         )}
                       </td>
                       <td className="table-td"><HashDisplay value={doc.sha256Hash} head={8} tail={6} /></td>

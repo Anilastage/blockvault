@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Inbox,
@@ -15,9 +15,11 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Feedback';
 import { useToast } from '@/context/ToastContext';
+import { useVault } from '@/context/VaultContext';
 import { accessService } from '@/services/accessService';
 import { getApiErrorMessage } from '@/services/api';
 import { formatDateTime, formatBytes } from '@/utils/format';
+import { unwrapWithAesKey, wrapKeyForPublicKey } from '@/utils/crypto';
 import type { AccessRequestItem, AccessRequestStatus } from '@/types';
 
 type Tab = 'incoming' | 'outgoing';
@@ -71,6 +73,7 @@ export const AccessRequestsPage = () => {
 
 const IncomingRequests = () => {
   const toast = useToast();
+  const vault = useVault();
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError, error, refetch } = useQuery({
@@ -88,9 +91,36 @@ const IncomingRequests = () => {
   const [decisionId, setDecisionId] = useState<string | null>(null);
 
   const decide = useMutation({
-    mutationFn: ({ id, approve }: { id: string; approve: boolean }) =>
-      approve ? accessService.approve(id) : accessService.deny(id),
-    onMutate: ({ id }) => setDecisionId(id),
+    mutationFn: async ({
+      request,
+      approve,
+    }: {
+      request: AccessRequestItem;
+      approve: boolean;
+    }) => {
+      if (!approve) return accessService.deny(request._id);
+      const doc = typeof request.documentId === 'object' ? request.documentId : null;
+      const requester =
+        typeof request.requesterId === 'object' ? request.requesterId : null;
+      if (doc?.encryption) {
+        const publicKey = requester?.encryption?.publicKey;
+        if (!publicKey) {
+          throw new Error(
+            'This requester has not set up an encryption vault yet, so the encrypted document cannot be shared with them.'
+          );
+        }
+        const vaultKeyRaw = await vault.ensureUnlocked();
+        const dekRaw = await unwrapWithAesKey(
+          doc.encryption.wrappedKey,
+          doc.encryption.keyIv,
+          vaultKeyRaw
+        );
+        const requesterWrappedKey = await wrapKeyForPublicKey(dekRaw, publicKey);
+        return accessService.approve(request._id, requesterWrappedKey);
+      }
+      return accessService.approve(request._id);
+    },
+    onMutate: ({ request }) => setDecisionId(request._id),
     onSuccess: (_data, vars) => {
       toast(vars.approve ? 'Access approved.' : 'Request denied.', vars.approve ? 'success' : 'warning');
       invalidate();
@@ -137,7 +167,7 @@ const IncomingRequests = () => {
               size="sm"
               loading={decide.isPending && decisionId === r._id}
               disabled={decide.isPending}
-              onClick={() => decide.mutate({ id: r._id, approve: true })}
+              onClick={() => decide.mutate({ request: r, approve: true })}
               icon={<CheckCircle2 className="h-4 w-4" />}
             >
               Allow download
@@ -147,7 +177,7 @@ const IncomingRequests = () => {
               variant="outline"
               loading={decide.isPending && decisionId === r._id}
               disabled={decide.isPending}
-              onClick={() => decide.mutate({ id: r._id, approve: false })}
+              onClick={() => decide.mutate({ request: r, approve: false })}
               icon={<XCircle className="h-4 w-4" />}
             >
               Deny
@@ -189,7 +219,7 @@ const OutgoingRequests = () => {
         <KeyRound className="h-9 w-9 text-slate-300" />
         <p className="font-semibold text-dark">No access requests sent</p>
         <p className="max-w-sm text-sm text-slate-500">
-          Verify someone else's registered document and request a copy from the owner — it will
+          Verify someone else's registered document and request a copy from the owner â€” it will
           show up here with its approval status.
         </p>
       </Card>
@@ -241,13 +271,13 @@ const RequestCard = ({
             <StatusBadge status={r.status} />
           </div>
           <p className="mt-0.5 text-xs text-slate-500">
-            {requester ? `${requester.fullName} · ${requester.email} · ` : ''}
-            {doc?.fileSize ? `${formatBytes(doc.fileSize)} · ` : ''}
+            {requester ? `${requester.fullName} Â· ${requester.email} Â· ` : ''}
+            {doc?.fileSize ? `${formatBytes(doc.fileSize)} Â· ` : ''}
             {formatDateTime(r.createdAt)}
           </p>
           {r.reason && (
             <p className="mt-1.5 rounded-lg bg-slate-50 px-3 py-2 text-xs italic text-slate-500 ring-1 ring-slate-100">
-              “{r.reason}”
+              â€œ{r.reason}â€
             </p>
           )}
           {linkExpired && (
@@ -279,3 +309,4 @@ const RequestCard = ({
     </Card>
   );
 };
+

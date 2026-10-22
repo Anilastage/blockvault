@@ -44,13 +44,16 @@ export const env = {
     chainId: parseInt(process.env.CHAIN_ID ?? '31337', 10),
   },
   upload: {
-    maxFileSizeMb: 10,
+    // Slightly above the 10 MB plaintext limit to fit AES-GCM ciphertext.
+    maxFileSizeMb: 12,
     dir: 'uploads',
   },
   email: {
-    // TEMP: SMTP delivery is disabled so OTPs fall back to the on-screen
-    // devCode. Re-enable with the SMTP_* env vars once outbound email works.
-    smtpEnabled: false,
+    // Resend is preferred: it is an HTTPS API, so it works on Render's free
+    // tier where outbound SMTP ports are blocked. SMTP remains a fallback.
+    resendApiKey: process.env.RESEND_API_KEY ?? '',
+    resendApiUrl: process.env.RESEND_API_URL ?? 'https://api.resend.com/emails',
+    smtpEnabled: process.env.SMTP_ENABLED === 'true',
     smtpHost: process.env.SMTP_HOST ?? '',
     smtpPort: parseInt(process.env.SMTP_PORT ?? '587', 10),
     smtpUser: process.env.SMTP_USER ?? '',
