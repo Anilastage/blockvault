@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, ShieldCheck, Ban, Play, Users, FileText } from 'lucide-react';
+import { Search, ShieldCheck, Ban, Play, Users } from 'lucide-react';
 import { adminService } from '@/services/adminService';
 import { getApiErrorMessage } from '@/services/api';
 import { Card } from '@/components/ui/Card';
@@ -134,12 +133,7 @@ export const AdminUsersPage = () => {
                   {rows.map((u) => (
                     <tr key={u.id ?? u._id} className="transition-colors hover:bg-slate-50/70">
                       <td className="table-td">
-                        <Link
-                          to={`/admin/users/${u.id ?? u._id}`}
-                          className="font-medium text-dark hover:text-primary-600 hover:underline"
-                        >
-                          {u.fullName}
-                        </Link>
+                        <p className="font-medium text-dark">{u.fullName}</p>
                         <p className="text-xs text-slate-400">{u.email}</p>
                       </td>
                       <td className="table-td font-mono text-xs text-slate-500">
@@ -150,15 +144,6 @@ export const AdminUsersPage = () => {
                       <td className="table-td whitespace-nowrap text-slate-500">{formatDate(u.createdAt)}</td>
                       <td className="table-td">
                         <div className="flex items-center justify-end gap-1.5">
-                          <Link to={`/admin/users/${u.id ?? u._id}`}>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              icon={<FileText className="h-3.5 w-3.5" />}
-                            >
-                              Documents
-                            </Button>
-                          </Link>
                           <Button
                             size="sm"
                             variant="outline"

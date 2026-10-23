@@ -1,4 +1,4 @@
-﻿import path from 'path';
+import path from 'path';
 import type { Request, Response } from 'express';
 import { DocumentModel } from '../models/Document';
 import { DownloadRecord } from '../models/DownloadRecord';
@@ -8,11 +8,10 @@ import { findValidDownloadCode } from '../services/downloadCodeService';
 import { logActivity, clientMeta } from '../services/activityService';
 import { storageProvider } from '../services/storageService';
 import { createNotification } from '../services/notificationService';
-import { setEncryptedFileHeaders } from '../utils/encryptionHeaders';
 
 /**
  * POST /api/download/code
- * Authenticated â€” the signed-in user holding a valid (unexpired) share-able
+ * Authenticated — the signed-in user holding a valid (unexpired) share-able
  * code downloads the associated document. The rotating code is the credential,
  * and because the user must be logged in, every download is attributed by name
  * in the audit trail and to the owner.
@@ -70,13 +69,6 @@ export const downloadByCode = asyncHandler(async (req: Request, res: Response) =
     metadata: { documentId: String(document._id), viaShareCode: true },
   });
 
-  if (document.encryption) {
-    setEncryptedFileHeaders(res, document, {
-      wrappedKey: document.encryption.shareDekWrapped,
-      keyIv: document.encryption.shareDekIv,
-      wrapAlg: 'AES-GCM-SHARE',
-    });
-  }
   res.setHeader('Content-Type', document.mimeType);
   res.setHeader(
     'Content-Disposition',

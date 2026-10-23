@@ -39,37 +39,6 @@ export const listUsers = asyncHandler(async (req: Request, res: Response) => {
   });
 });
 
-/** GET /api/admin/users/:id — profile plus document totals for the drill-down page. */
-export const getUserDetail = asyncHandler(async (req: Request, res: Response) => {
-  const user = await User.findById(req.params.id).select(
-    'fullName email role walletAddress isActive emailVerified createdAt lastLoginAt encryption.publicKey encryption.version'
-  );
-  if (!user) throw ApiError.notFound('User not found');
-
-  const [totalDocuments, confirmed, pending, encrypted, verifications] = await Promise.all([
-    DocumentModel.countDocuments({ userId: user._id }),
-    DocumentModel.countDocuments({ userId: user._id, blockchainStatus: 'CONFIRMED' }),
-    DocumentModel.countDocuments({ userId: user._id, blockchainStatus: 'PENDING' }),
-    DocumentModel.countDocuments({ userId: user._id, 'encryption.iv': { $exists: true } }),
-    Verification.countDocuments({ userId: user._id }),
-  ]);
-
-  res.json({
-    success: true,
-    message: 'User details retrieved',
-    data: {
-      user,
-      stats: {
-        totalDocuments,
-        confirmed,
-        pending,
-        encrypted,
-        verifications,
-      },
-    },
-  });
-});
-
 export const changeUserRole = asyncHandler(async (req: Request, res: Response) => {
   const { role } = req.body as { role: 'USER' | 'ADMIN' };
   const target = await User.findById(req.params.id);
@@ -134,8 +103,6 @@ export const listDocuments = asyncHandler(async (req: Request, res: Response) =>
   }
   const status = req.query.status as string | undefined;
   if (status && status !== 'ALL') filter.blockchainStatus = status;
-  const userId = req.query.userId as string | undefined;
-  if (userId) filter.userId = userId;
 
   const [docs, total] = await Promise.all([
     DocumentModel.find(filter)

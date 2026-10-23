@@ -18,7 +18,6 @@ import {
 import { authService } from "@/services/authService";
 import { getApiErrorMessage } from "@/services/api";
 import { useAuth } from "@/context/AuthContext";
-import { useVault } from "@/context/VaultContext";
 import { useWallet } from "@/context/WalletContext";
 import { useToast } from "@/context/ToastContext";
 import { Card } from "@/components/ui/Card";
@@ -44,7 +43,6 @@ const passwordSchema = z
 type PasswordValues = z.infer<typeof passwordSchema>;
 export const ProfilePage = () => {
   const { user, refreshUser } = useAuth();
-  const vault = useVault();
   const wallet = useWallet();
   const toast = useToast();
   const [copied, setCopied] = useState(false);
@@ -84,7 +82,7 @@ export const ProfilePage = () => {
   });
   const passwordMutation = useMutation({
     mutationFn: (values: PasswordValues) =>
-      vault.changePassword(values.currentPassword, values.newPassword),
+      authService.changePassword(values.currentPassword, values.newPassword),
     onSuccess: () => {
       toast("Password changed successfully.", "success");
       setPwOpen(false);
@@ -268,7 +266,7 @@ export const ProfilePage = () => {
             label="Network"
             value={blockchainLabel(wallet.chainId, wallet.expectedChainId)}
           />{" "}
-          <Row label="Network ID" value={wallet.expectedChainId ?? "â€”"} />{" "}
+          <Row label="Network ID" value={wallet.expectedChainId ?? "—"} />{" "}
         </dl>{" "}
         <div className="mt-5 flex flex-wrap gap-2">
           {" "}
@@ -326,7 +324,8 @@ export const ProfilePage = () => {
             <h3 className="font-semibold text-dark">Security</h3>{" "}
             <p className="mt-1 text-sm text-slate-500">
               {" "}
-              Your password protects your account and unlocks your encryption vault. If you lose it, use your recovery phrase or the account recovery flow.{" "}
+              Passwords are hashed with bcrypt — they can be changed but never
+              recovered.{" "}
             </p>{" "}
           </div>{" "}
           <Button
@@ -399,7 +398,7 @@ const blockchainLabel = (
   expected: number | null,
 ): string => {
   if (chainId == null)
-    return expected != null ? `Configured network (Network ID ${expected})` : "â€”";
+    return expected != null ? `Configured network (Network ID ${expected})` : "—";
   return blockchainName(chainId);
 };
 const blockchainName = (chainId: number): string => {

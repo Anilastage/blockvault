@@ -9,8 +9,6 @@ export interface IAccessRequest extends MongoDocument {
   status: AccessRequestStatus;
   /** One-time bearer token issued when the owner approves the request. */
   accessToken?: string;
-  /** Document key wrapped for the requester's RSA public key on approval. */
-  requesterWrappedKey?: string;
   /** Moment the access link expires (set when approved). */
   expiresAt?: Date;
   /** Set when the one-time link is actually consumed. */
@@ -32,7 +30,6 @@ const accessRequestSchema = new Schema<IAccessRequest>(
       index: true,
     },
     accessToken: { type: String, index: true, unique: true, sparse: true },
-    requesterWrappedKey: { type: String },
     expiresAt: { type: Date },
     usedAt: { type: Date },
     decidedBy: { type: Schema.Types.ObjectId, ref: 'User' },

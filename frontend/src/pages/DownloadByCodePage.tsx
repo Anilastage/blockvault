@@ -1,53 +1,21 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { Download, KeyRound, Lock, RefreshCcw, ShieldCheck } from 'lucide-react';
+import { Download, KeyRound, RefreshCcw, ShieldCheck } from 'lucide-react';
 import { downloadCodeService } from '@/services/downloadCodeService';
 import { useToast } from '@/context/ToastContext';
 import { getApiErrorMessage } from '@/services/api';
-import { base64UrlToBytes } from '@/utils/crypto';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 
-const parseShareFragment = (
-  hash: string
-): { code: string; shareKey: Uint8Array | null; error: string } => {
-  const params = new URLSearchParams(hash.replace(/^#/, ''));
-  const code = (params.get('code') ?? '').replace(/\s+/g, '').toUpperCase();
-  const encodedKey = params.get('k');
-  if (!encodedKey) return { code, shareKey: null, error: '' };
-
-  try {
-    const shareKey = base64UrlToBytes(encodedKey);
-    if (shareKey.length !== 32) throw new Error('Invalid key length');
-    return { code, shareKey, error: '' };
-  } catch {
-    return {
-      code,
-      shareKey: null,
-      error: 'This secure link contains an invalid decryption key. Ask the owner for a new link.',
-    };
-  }
-};
-
 export const DownloadByCodePage = () => {
   const toast = useToast();
-  const location = useLocation();
-  const parsedLink = useMemo(() => parseShareFragment(location.hash), [location.hash]);
-  const [code, setCode] = useState(parsedLink.code);
-  const [shareKey, setShareKey] = useState<Uint8Array | null>(parsedLink.shareKey);
-  const [error, setError] = useState(parsedLink.error);
-
-  useEffect(() => {
-    setCode(parsedLink.code);
-    setShareKey(parsedLink.shareKey);
-    setError(parsedLink.error);
-  }, [parsedLink]);
+  const [code, setCode] = useState('');
+  const [error, setError] = useState('');
 
   const download = useMutation({
-    mutationFn: ({ value, key }: { value: string; key?: Uint8Array }) =>
-      downloadCodeService.downloadByCode(value, key),
+    mutationFn: (value: string) => downloadCodeService.downloadByCode(value),
     onSuccess: () => {
       setError('');
       toast('Document downloaded successfully.', 'success');
@@ -67,7 +35,7 @@ export const DownloadByCodePage = () => {
       return;
     }
     setError('');
-    download.mutate({ value, key: shareKey ?? undefined });
+    download.mutate(value);
   };
 
   return (
@@ -82,16 +50,6 @@ export const DownloadByCodePage = () => {
             Enter the share code you received from the document owner to download the file.
           </p>
         </div>
-
-        {shareKey && (
-          <div className="mb-4 flex items-start gap-2 rounded-xl border border-success/20 bg-success/5 p-3 text-xs text-slate-600">
-            <Lock className="mt-0.5 h-4 w-4 shrink-0 text-success" />
-            <span>
-              Secure link detected. This encrypted document will be decrypted in your browser; the
-              decryption key never leaves this page.
-            </span>
-          </div>
-        )}
 
         <form onSubmit={submit} className="space-y-4" noValidate>
           <Input
@@ -131,14 +89,7 @@ export const DownloadByCodePage = () => {
             <li>
               The owner shares a unique <strong>8-character code</strong> for a specific document.
             </li>
-            <li>
-              Enter the code here to download the file. You must be signed in so the download is
-              attributed to your account.
-            </li>
-            <li>
-              Encrypted documents also need the <strong>full secure link</strong>; the code alone
-              cannot decrypt them.
-            </li>
+            <li>Enter the code here to download the file. You must be signed in — downloads are attributed to your account.</li>
             <li>Each code stays valid for <strong>20 minutes</strong>, then a new one is generated.</li>
           </ul>
         </div>

@@ -33,28 +33,12 @@ export const resendVerificationSchema = z.object({
 
 export const updateProfileSchema = z.object({
   fullName: z.string().trim().min(2).max(100).optional(),
-});
-
-const ethAddressField = z
-  .string()
-  .trim()
-  .regex(/^0x[a-fA-F0-9]{40}$/, 'Invalid Ethereum wallet address');
-
-export const walletLinkMessageSchema = z.object({
-  address: ethAddressField,
-});
-
-export const walletLinkSchema = z.object({
-  address: ethAddressField,
-  message: z.string().trim().min(40).max(600),
-  signature: z
+  walletAddress: z
     .string()
     .trim()
-    .regex(/^0x[a-fA-F0-9]{130}$/, 'Invalid signature'),
-});
-
-export const walletUnlinkSchema = z.object({
-  password: z.string().min(1, 'Password is required'),
+    .regex(/^0x[a-fA-F0-9]{40}$/, 'Invalid Ethereum wallet address')
+    .or(z.literal(''))
+    .optional(),
 });
 
 const objectId = z.string().regex(/^[a-fA-F0-9]{24}$/, 'Invalid id format');
@@ -67,21 +51,9 @@ const txHash = z.string().regex(/^0x[a-fA-F0-9]{64}$/, 'Invalid transaction hash
 export const createDocumentSchema = z.object({
   originalName: z.string().trim().min(1).max(255),
   fileName: z.string().trim().min(1).max(255),
-  fileSize: z.number().int().positive().max(15 * 1024 * 1024),
+  fileSize: z.number().int().positive().max(10 * 1024 * 1024),
   mimeType: z.string().trim().min(3).max(150),
   sha256Hash: sha256,
-  // Client-side encrypted uploads. The file body is ciphertext; sha256Hash is
-  // the plaintext hash anchored on-chain and ciphertextHash covers the bytes
-  // actually stored by the server.
-  encrypted: z
-    .union([z.boolean(), z.enum(['true', 'false'])])
-    .optional()
-    .transform((value) => value === true || value === 'true'),
-  encryptionIv: z.string().trim().min(12).max(512).optional(),
-  encryptionWrappedKey: z.string().trim().min(20).max(4096).optional(),
-  encryptionKeyIv: z.string().trim().min(12).max(512).optional(),
-  ciphertextHash: sha256.optional(),
-  ciphertextSize: z.number().int().positive().max(20 * 1024 * 1024).optional(),
   // When omitted the document is saved as PENDING and can be registered later
   // via POST /api/documents/:id/register.
   transactionHash: txHash.optional(),
@@ -148,7 +120,6 @@ export const paginationQuery = z.object({
   sortOrder: z.enum(['asc', 'desc']).optional(),
   folderId: z.string().trim().optional(),
   tag: z.union([tagQuery, z.array(tagQuery)]).optional(),
-  userId: z.string().regex(/^[a-fA-F0-9]{24}$/, 'Invalid user id').optional(),
 });
 
 export const mongoIdParam = z.object({ id: objectId });
@@ -197,71 +168,4 @@ export const smsSetupSchema = z.object({
     .string()
     .trim()
     .regex(/^\+[1-9]\d{1,14}$/, 'Enter a valid phone number including country code (e.g. +15551234567)'),
-});
-
-const encryptedValue = z.string().trim().min(8).max(8192);
-
-const keyIterations = z
-  .number()
-  .int()
-  .min(100_000, 'PBKDF2 iteration count is too low')
-  .max(2_000_000, 'PBKDF2 iteration count is too high');
-
-export const vaultSetupSchema = z.object({
-  version: z.number().int().min(1).max(10).optional(),
-  publicKey: encryptedValue,
-  encryptedPrivateKey: encryptedValue,
-  privateKeyIv: encryptedValue,
-  passwordWrappedVaultKey: encryptedValue,
-  passwordWrapIv: encryptedValue,
-  recoveryWrappedVaultKey: encryptedValue,
-  recoveryWrapIv: encryptedValue,
-  keySalt: encryptedValue,
-  keyIterations,
-});
-
-export const vaultPasswordEnvelopeSchema = z.object({
-  passwordWrappedVaultKey: encryptedValue,
-  passwordWrapIv: encryptedValue,
-  keySalt: encryptedValue,
-  keyIterations,
-});
-
-export const vaultRecoveryEnvelopeSchema = z.object({
-  recoveryWrappedVaultKey: encryptedValue,
-  recoveryWrapIv: encryptedValue,
-});
-
-export const recoverVaultStartSchema = z.object({
-  email: z.string().trim().toLowerCase().email('Please provide a valid email address'),
-});
-
-export const recoverVaultCompleteSchema = z.object({
-  recoveryToken: z.string().min(10, 'Invalid recovery session'),
-  code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'),
-  newPassword: z
-    .string()
-    .min(8, 'Password must be at least 8 characters')
-    .max(72)
-    .regex(/[A-Za-z]/, 'Password must contain at least one letter')
-    .regex(/[0-9]/, 'Password must contain at least one number'),
-  // Present only for accounts that have an encryption vault; must then be
-  // re-wrapped with the new password so existing documents stay readable.
-  passwordWrappedVaultKey: encryptedValue.optional(),
-  passwordWrapIv: encryptedValue.optional(),
-  keySalt: encryptedValue.optional(),
-  keyIterations: keyIterations.optional(),
-  recoveryWrappedVaultKey: encryptedValue.optional(),
-  recoveryWrapIv: encryptedValue.optional(),
-});
-
-export const shareKeySchema = z.object({
-  shareKeyWrapped: encryptedValue,
-  shareKeyWrapIv: encryptedValue,
-  shareDekWrapped: encryptedValue,
-  shareDekIv: encryptedValue,
-});
-
-export const approveAccessRequestSchema = z.object({
-  requesterWrappedKey: encryptedValue.optional(),
 });

@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { protect } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { z } from 'zod';
-import { approveAccessRequestSchema } from '../validators';
 import {
   requestAccess,
   getMyRequests,
@@ -55,7 +54,6 @@ router.get(
 router.post(
   '/requests/:id/approve',
   validate(z.object({ id: z.string().length(24) }), 'params'),
-  validate(approveAccessRequestSchema),
   approveRequest
 );
 

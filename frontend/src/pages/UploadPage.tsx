@@ -1,4 +1,4 @@
-﻿import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
@@ -22,7 +22,6 @@ import {
 } from "@/utils/hash";
 import { useWallet } from "@/context/WalletContext";
 import { useToast } from "@/context/ToastContext";
-import { useVault } from "@/context/VaultContext";
 import { documentService } from "@/services/documentService";
 import { blockchainService } from "@/services/blockchainService";
 import { getApiErrorMessage } from "@/services/api";
@@ -31,7 +30,6 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Spinner } from "@/components/ui/Feedback";
 import { formatBytes } from "@/utils/format";
-import { encryptFileBytes, randomBytes, sha256Hex, wrapWithAesKey } from "@/utils/crypto";
 import {
   registerHashOnChain,
   isRegisterFailure,
@@ -44,7 +42,7 @@ type TxStage = "idle" | RegisterStage | "confirmed" | "failed";
 const STAGES: Array<{ key: TxStage; label: string }> = [
   { key: "preparing", label: "Preparing transaction" },
   { key: "signing", label: "Signing and submitting transaction" },
-  { key: "pending", label: "Transaction submitted â€” pending" },
+  { key: "pending", label: "Transaction submitted — pending" },
   { key: "confirming", label: "Waiting for blockchain confirmation" },
   { key: "confirmed", label: "Blockchain confirmed" },
 ];
@@ -52,7 +50,6 @@ export const UploadPage = () => {
   const navigate = useNavigate();
   const toast = useToast();
   const wallet = useWallet();
-  const vault = useVault();
   const inputRef = useRef<HTMLInputElement>(null);
   const [searchParams] = useSearchParams();
   const parentId = searchParams.get("parent") ?? undefined;
@@ -101,48 +98,24 @@ export const UploadPage = () => {
     [toast],
   );
   const saveDocument = useMutation({
-    mutationFn: async ({
+    mutationFn: ({
       transactionHash,
       blockNumber: txBlockNumber,
     }: {
       transactionHash?: string;
       blockNumber?: number;
-    }) => {
-      if (!file || !hash) throw new Error("Select a document first.");
-      const vaultKeyRaw = await vault.ensureUnlocked();
-      const dekRaw = randomBytes(32);
-      const plaintext = new Uint8Array(await file.arrayBuffer());
-      const { ciphertext, iv } = await encryptFileBytes(plaintext, dekRaw);
-      const wrappedKey = await wrapWithAesKey(dekRaw, vaultKeyRaw);
-      const ciphertextHash = await sha256Hex(ciphertext);
-      const ciphertextBuffer = ciphertext.buffer.slice(
-        ciphertext.byteOffset,
-        ciphertext.byteOffset + ciphertext.byteLength
-      ) as ArrayBuffer;
-      const encryptedFile = new File([ciphertextBuffer], file.name, {
-        type: file.type || "application/octet-stream",
-        lastModified: file.lastModified,
-      });
-
-      return documentService.create({
-        file: encryptedFile,
-        originalName: file.name,
-        fileName: file.name,
-        fileSize: file.size,
-        mimeType: file.type || "application/octet-stream",
+    }) =>
+      documentService.create({
+        file: file!,
+        originalName: file!.name,
+        fileName: file!.name,
+        fileSize: file!.size,
+        mimeType: file!.type || "application/octet-stream",
         sha256Hash: hash,
         transactionHash,
         blockNumber: txBlockNumber,
         parentId,
-        encryption: {
-          iv,
-          wrappedKey: wrappedKey.data,
-          keyIv: wrappedKey.iv,
-          ciphertextHash,
-          ciphertextSize: ciphertext.byteLength,
-        },
-      });
-    },
+      }),
     onSuccess: (data, variables) => {
       toast(
         variables.transactionHash
@@ -185,7 +158,7 @@ export const UploadPage = () => {
         setFailure(err);
         if (err.documentHash && err.documentHash !== hash.toLowerCase()) {
           toast(
-            `This document was previously registered with a different hash (${err.documentHash.slice(0, 10)}â€¦). The exact digest you uploaded is already on-chain.`,
+            `This document was previously registered with a different hash (${err.documentHash.slice(0, 10)}…). The exact digest you uploaded is already on-chain.`,
             "error",
             "Already registered"
           );
@@ -207,18 +180,7 @@ export const UploadPage = () => {
     if (!file || !hash) return;
     saveDocument.mutate({ transactionHash: undefined, blockNumber: undefined });
   };
-  const submit = async () => {
-    if (!file || !hash) return;
-    try {
-      await vault.ensureUnlocked();
-    } catch {
-      toast(
-        "Unlock your encryption vault before uploading so the document can be encrypted.",
-        "warning",
-        "Vault locked"
-      );
-      return;
-    }
+  const submit = () => {
     if (autoRegister) void registerOnChain();
     else uploadOnly();
   };
@@ -238,7 +200,7 @@ export const UploadPage = () => {
         (parentQuery.isLoading ? (
           <Card className="flex items-center gap-3 p-5">
             {" "}
-            <Spinner className="h-4 w-4" /> Loading document being revisedâ€¦
+            <Spinner className="h-4 w-4" /> Loading document being revised…
           </Card>
         ) : parent && parent.blockchainStatus === "CONFIRMED" ? (
           <Card className="border-secondary-200 bg-secondary-100/30 p-5">
@@ -320,7 +282,7 @@ export const UploadPage = () => {
           </p>{" "}
           <p className="mt-4 rounded-full bg-slate-100 px-4 py-1 text-xs font-medium text-slate-500">
             {" "}
-            {ACCEPTED_LABEL} Â· Maximum {MAX_FILE_SIZE_MB} MB{" "}
+            {ACCEPTED_LABEL} · Maximum {MAX_FILE_SIZE_MB} MB{" "}
           </p>{" "}
           <input
             ref={inputRef}
@@ -351,7 +313,7 @@ export const UploadPage = () => {
                 </p>{" "}
                 <p className="text-xs text-slate-400">
                   {" "}
-                  {formatBytes(file.size)} Â· {file.type || "unknown type"}{" "}
+                  {formatBytes(file.size)} · {file.type || "unknown type"}{" "}
                 </p>{" "}
               </div>{" "}
             </div>{" "}
@@ -381,7 +343,7 @@ export const UploadPage = () => {
               <p className="mt-2 flex items-center gap-2 text-sm text-slate-400">
                 {" "}
                 <Loader2 className="h-4 w-4 animate-spin" /> Computing digest
-                from file bytesâ€¦{" "}
+                from file bytes…{" "}
               </p>
             ) : (
               <p className="mt-2 break-all font-mono text-xs leading-relaxed text-dark">
@@ -502,7 +464,7 @@ export const UploadPage = () => {
                       {" "}
                       {s.label}{" "}
                       {s.key === "pending" && txHash
-                        ? ` Â· ${txHash.slice(0, 10)}â€¦${txHash.slice(-6)}`
+                        ? ` · ${txHash.slice(0, 10)}…${txHash.slice(-6)}`
                         : ""}{" "}
                     </span>{" "}
                   </li>
@@ -539,7 +501,7 @@ export const UploadPage = () => {
                   <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
                     {" "}
                     <Loader2 className="h-3 w-3 animate-spin" /> Saving document
-                    metadataâ€¦{" "}
+                    metadata…{" "}
                   </p>
                 )}{" "}
               </div>{" "}
@@ -634,7 +596,7 @@ export const UploadPage = () => {
                     </dt>{" "}
                     <dd className="mt-1 break-all rounded-lg bg-slate-50 px-3 py-2 font-mono text-xs text-dark">
                       {" "}
-                      {failure.documentHash || hash || "â€”"}{" "}
+                      {failure.documentHash || hash || "—"}{" "}
                     </dd>{" "}
                   </div>{" "}
                   <div>
@@ -656,7 +618,7 @@ export const UploadPage = () => {
                     </dt>{" "}
                     <dd className="mt-1 break-all rounded-lg bg-slate-50 px-3 py-2 font-mono text-xs text-dark">
                       {" "}
-                      {wallet.contractAddress || "â€”"}{" "}
+                      {wallet.contractAddress || "—"}{" "}
                     </dd>{" "}
                   </div>{" "}
                 </dl>{" "}
@@ -668,12 +630,12 @@ export const UploadPage = () => {
                   <ul className="mt-1 list-inside list-disc space-y-1">
                     {" "}
                     <li>
-                      Register a different document â€” every unique file produces
+                      Register a different document — every unique file produces
                       its own hash.
                     </li>{" "}
                     <li>
                       {" "}
-                      This record is public and verifiable â€” look it up by hash
+                      This record is public and verifiable — look it up by hash
                       on the Verify page or in the Blockchain Explorer.{" "}
                     </li>{" "}
                   </ul>{" "}
@@ -705,7 +667,7 @@ export const UploadPage = () => {
                     </dt>{" "}
                     <dd className="mt-1 break-all rounded-lg bg-slate-50 px-3 py-2 font-mono text-xs text-dark">
                       {" "}
-                      {hash || "â€”"}{" "}
+                      {hash || "—"}{" "}
                     </dd>{" "}
                   </div>{" "}
                   <div>
@@ -716,7 +678,7 @@ export const UploadPage = () => {
                     </dt>{" "}
                     <dd className="mt-1 break-all rounded-lg bg-slate-50 px-3 py-2 font-mono text-xs text-dark">
                       {" "}
-                      {wallet.contractAddress || "â€”"}{" "}
+                      {wallet.contractAddress || "—"}{" "}
                     </dd>{" "}
                   </div>{" "}
                   <div>
@@ -727,8 +689,8 @@ export const UploadPage = () => {
                     </dt>{" "}
                     <dd className="mt-1 text-sm text-dark">
                       {" "}
-                      {blockchainService.networkName(wallet.chainId)} Â· Network ID{" "}
-                      {wallet.chainId ?? "â€”"}{" "}
+                      {blockchainService.networkName(wallet.chainId)} · Network ID{" "}
+                      {wallet.chainId ?? "—"}{" "}
                     </dd>{" "}
                   </div>{" "}
                 </dl>{" "}
@@ -763,4 +725,3 @@ const ShieldIcon = () => (
     <path d="M12 3l7 4v10l-7 4-7-4V7l7-4z" strokeLinejoin="round" />{" "}
   </svg>
 );
-

@@ -1,5 +1,4 @@
-﻿import { api, unwrap, getBlobError } from './api';
-import { saveDownloadResponse } from '@/utils/encryptedDownload';
+import { api, unwrap, getBlobError, saveBlob } from './api';
 import type { DownloadCodeInfo } from '@/types';
 
 export const downloadCodeService = {
@@ -17,16 +16,12 @@ export const downloadCodeService = {
 
   /**
    * Public: submit a share code and download the matching document. No login
-   * required â€” the rotating code is the credential.
+   * required — the rotating code is the credential.
    */
-  async downloadByCode(code: string, shareKeyRaw?: Uint8Array): Promise<void> {
+  async downloadByCode(code: string): Promise<void> {
     try {
       const res = await api.post('/download/code', { code }, { responseType: 'blob' });
-      await saveDownloadResponse(
-        res,
-        `document-${code}.${extFromType((res.data as Blob).type)}`,
-        { shareKeyRaw }
-      );
+      saveBlob(res.data as Blob, `document-${code}.${extFromType((res.data as Blob).type)}`);
     } catch (err) {
       // Blob responses swallow the server's JSON error body; unwrap it.
       throw await getBlobError(err);
@@ -47,4 +42,3 @@ function extFromType(mime: string): string {
   };
   return map[mime] ?? 'bin';
 }
-

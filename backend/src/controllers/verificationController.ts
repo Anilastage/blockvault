@@ -1,4 +1,4 @@
-﻿import type { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import { DocumentModel } from '../models/Document';
 import { Verification } from '../models/Verification';
 import { DownloadRecord } from '../models/DownloadRecord';
@@ -12,7 +12,6 @@ import { lookupOnChain } from '../services/blockchainService';
 import { logActivity, clientMeta } from '../services/activityService';
 import { notifyDocumentVerified } from '../services/notificationService';
 import { storageProvider } from '../services/storageService';
-import { setEncryptedFileHeaders } from '../utils/encryptionHeaders';
 
 interface VerifyOutcome {
   result: 'VERIFIED' | 'MODIFIED' | 'NOT_FOUND';
@@ -194,7 +193,7 @@ const performLookup = async (
   return outcome;
 };
 
-/** POST /api/verification/upload â€” multipart file upload for verification. */
+/** POST /api/verification/upload — multipart file upload for verification. */
 export const verifyUploadedFile = asyncHandler(async (req: Request, res: Response) => {
   const file = req.file;
   if (!file) throw ApiError.badRequest('A document file is required for verification');
@@ -219,7 +218,7 @@ export const verifyUploadedFile = asyncHandler(async (req: Request, res: Respons
   res.json({ success: true, message: `Verification complete: ${outcome.result}`, data: outcome });
 });
 
-/** POST /api/verification/hash â€” verify a pasted SHA-256 hash. */
+/** POST /api/verification/hash — verify a pasted SHA-256 hash. */
 export const verifyByHash = asyncHandler(async (req: Request, res: Response) => {
   const { hash } = req.body as { hash: string };
   const documentId = req.body?.documentId as string | undefined;
@@ -242,7 +241,7 @@ export const verifyByHash = asyncHandler(async (req: Request, res: Response) => 
 });
 
 /**
- * POST /api/verification/public/upload â€” same check as verifyUploadedFile but
+ * POST /api/verification/public/upload — same check as verifyUploadedFile but
  * for unauthenticated visitors. No verification history is recorded and there
  * is no activity log (there is no user); the on-chain lookup and owner
  * notification still work so document owners stay informed.
@@ -260,7 +259,7 @@ export const verifyUploadedFilePublic = asyncHandler(async (req: Request, res: R
   res.json({ success: true, message: `Verification complete: ${outcome.result}`, data: outcome });
 });
 
-/** POST /api/verification/public/hash â€” public version of verifyByHash. */
+/** POST /api/verification/public/hash — public version of verifyByHash. */
 export const verifyByHashPublic = asyncHandler(async (req: Request, res: Response) => {
   const { hash } = req.body as { hash: string };
   const documentId = req.body?.documentId as string | undefined;
@@ -271,7 +270,7 @@ export const verifyByHashPublic = asyncHandler(async (req: Request, res: Respons
   res.json({ success: true, message: `Verification complete: ${outcome.result}`, data: outcome });
 });
 
-/** GET /api/verification/history â€” current user's verification history. */
+/** GET /api/verification/history — current user's verification history. */
 export const getHistory = asyncHandler(async (req: Request, res: Response) => {
   const page = Math.max(1, Number(req.query.page ?? 1));
   const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 10)));
@@ -327,7 +326,7 @@ export const getHistory = asyncHandler(async (req: Request, res: Response) => {
   });
 });
 
-/** GET /api/verification/:documentId â€” verification history of one document. */
+/** GET /api/verification/:documentId — verification history of one document. */
 export const getDocumentVerifications = asyncHandler(async (req: Request, res: Response) => {
   const document = await DocumentModel.findById(req.params.documentId);
   if (!document) throw ApiError.notFound('Document not found');
@@ -360,11 +359,9 @@ export const downloadRegisteredDocument = asyncHandler(async (req: Request, res:
 
   const isOwner = String(document.userId) === String(req.user!.id);
   const isAdmin = req.user!.role === 'ADMIN';
-  if (!isOwner && (document.encryption || !isAdmin)) {
+  if (!isOwner && !isAdmin) {
     throw ApiError.forbidden(
-      document.encryption
-        ? 'This document is end-to-end encrypted. Only the owner can decrypt it.'
-        : 'This document is owned by someone else. Request access from the owner to download it.'
+      'This document is owned by someone else. Request access from the owner to download it.'
     );
   }
 
@@ -387,13 +384,6 @@ export const downloadRegisteredDocument = asyncHandler(async (req: Request, res:
     ...clientMeta(req.ip, req.headers['user-agent']),
   });
 
-  if (document.encryption) {
-    setEncryptedFileHeaders(res, document, {
-      wrappedKey: document.encryption.wrappedKey,
-      keyIv: document.encryption.keyIv,
-      wrapAlg: 'AES-GCM-VAULT',
-    });
-  }
   res.setHeader('Content-Type', document.mimeType);
   res.setHeader(
     'Content-Disposition',

@@ -86,7 +86,7 @@ export interface TxValidationResult {
  * Server-side verification that a submitted transaction really registered
  * the claimed hash on the configured contract. Prevents fabricated tx hashes.
  */
-const validateRegistrationTxImpl = async (
+export const validateRegistrationTx = async (
   txHash: string,
   expectedSha256Hex: string
 ): Promise<TxValidationResult> => {
@@ -147,20 +147,6 @@ const validateRegistrationTxImpl = async (
     return { valid: false, reason: `Could not verify transaction on-chain: ${message}` };
   }
 };
-
-/**
- * Small mutable seam so integration tests can replace the on-chain lookup
- * without a live Hardhat node.
- */
-export const registrationTxValidator = {
-  validate: validateRegistrationTxImpl,
-};
-
-export const validateRegistrationTx = (
-  txHash: string,
-  expectedSha256Hex: string
-): Promise<TxValidationResult> =>
-  registrationTxValidator.validate(txHash, expectedSha256Hex);
 
 let lastReconcile = 0;
 

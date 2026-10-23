@@ -1,6 +1,4 @@
-﻿import { api, unwrap, getBlobError } from './api';
-import { saveDownloadResponse } from '@/utils/encryptedDownload';
-import { sha256File } from '@/utils/hash';
+import { api, unwrap, getBlobError, saveBlob } from './api';
 import type { VerificationRecord, VerifyOutcome } from '@/types';
 
 export const verificationService = {
@@ -16,14 +14,24 @@ export const verificationService = {
   },
 
   async verifyUploadedFile(file: File, documentId?: string): Promise<VerifyOutcome> {
-    const hash = await sha256File(file);
-    return this.verifyByHash(hash, documentId);
+    const form = new FormData();
+    form.append('file', file);
+    if (documentId) form.append('documentId', documentId);
+    const res = await api.post('/verification/upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return unwrap<VerifyOutcome>(res.data);
   },
 
   /** Public, no-auth variant used by the shared verification page. */
   async verifyUploadedFilePublic(file: File, documentId?: string): Promise<VerifyOutcome> {
-    const hash = await sha256File(file);
-    return this.verifyByHashPublic(hash, documentId);
+    const form = new FormData();
+    form.append('file', file);
+    if (documentId) form.append('documentId', documentId);
+    const res = await api.post('/verification/public/upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return unwrap<VerifyOutcome>(res.data);
   },
 
   async history(query: {
@@ -46,10 +54,9 @@ export const verificationService = {
   async download(documentId: string, fileName: string): Promise<void> {
     try {
       const res = await api.get(`/verification/download/${documentId}`, { responseType: 'blob' });
-      await saveDownloadResponse(res, fileName);
+      saveBlob(res.data as Blob, fileName);
     } catch (err) {
       throw await getBlobError(err);
     }
   },
 };
-

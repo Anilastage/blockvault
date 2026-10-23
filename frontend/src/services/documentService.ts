@@ -1,5 +1,4 @@
-﻿import { api, unwrap, getBlobError } from './api';
-import { saveDownloadResponse } from '@/utils/encryptedDownload';
+import { api, unwrap, getBlobError, saveBlob } from './api';
 import type {
   DocumentItem,
   DocumentListResponse,
@@ -43,13 +42,6 @@ export const documentService = {
     transactionHash?: string;
     blockNumber?: number;
     parentId?: string;
-    encryption?: {
-      iv: string;
-      wrappedKey: string;
-      keyIv: string;
-      ciphertextHash: string;
-      ciphertextSize: number;
-    };
   }): Promise<DocumentItem> {
     const form = new FormData();
     form.append('file', payload.file);
@@ -63,14 +55,6 @@ export const documentService = {
       form.append('blockNumber', String(payload.blockNumber));
     }
     if (payload.parentId) form.append('parentId', payload.parentId);
-    if (payload.encryption) {
-      form.append('encrypted', 'true');
-      form.append('encryptionIv', payload.encryption.iv);
-      form.append('encryptionWrappedKey', payload.encryption.wrappedKey);
-      form.append('encryptionKeyIv', payload.encryption.keyIv);
-      form.append('ciphertextHash', payload.encryption.ciphertextHash);
-      form.append('ciphertextSize', String(payload.encryption.ciphertextSize));
-    }
     const res = await api.post('/documents', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
@@ -137,22 +121,10 @@ export const documentService = {
     await api.delete(`/documents/${id}`);
   },
 
-  async setShareKey(
-    id: string,
-    payload: {
-      shareKeyWrapped: string;
-      shareKeyWrapIv: string;
-      shareDekWrapped: string;
-      shareDekIv: string;
-    }
-  ): Promise<void> {
-    await api.put(`/documents/${id}/share-key`, payload);
-  },
-
   async download(id: string, fileName: string): Promise<void> {
     try {
       const res = await api.get(`/documents/${id}/download`, { responseType: 'blob' });
-      await saveDownloadResponse(res, fileName);
+      saveBlob(res.data as Blob, fileName);
     } catch (err) {
       throw await getBlobError(err);
     }
@@ -164,4 +136,3 @@ export const documentService = {
       .then((res) => unwrap<{ verifications: VerificationRecord[] }>(res.data).verifications);
   },
 };
-

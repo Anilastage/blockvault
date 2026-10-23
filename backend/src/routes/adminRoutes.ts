@@ -1,7 +1,6 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import {
   listUsers,
-  getUserDetail,
   changeUserRole,
   changeUserStatus,
   listDocuments,
@@ -24,7 +23,6 @@ const router = Router();
 router.use(protect, adminOnly);
 
 router.get('/users', validate(paginationQuery.partial(), 'query'), listUsers);
-router.get('/users/:id', validate(mongoIdParam, 'params'), getUserDetail);
 router.put('/users/:id/role', validate(mongoIdParam, 'params'), validate(changeRoleSchema), changeUserRole);
 router.put('/users/:id/status', validate(mongoIdParam, 'params'), validate(changeStatusSchema), changeUserStatus);
 
@@ -34,4 +32,3 @@ router.get('/analytics', getSystemAnalytics);
 router.get('/activity-logs', listActivityLogs);
 
 export default router;
-

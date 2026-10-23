@@ -183,7 +183,7 @@ export const UserGrowthChart = ({
       <Tooltip contentStyle={tooltipStyle} labelFormatter={(l) => shortDate(String(l))} />
       <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
       <Area type="monotone" dataKey="users" name="New users" stroke={COLORS.secondary} strokeWidth={2} fill="url(#gUsers)" />
-      <Area type="monotone" dataKey="uploads" name="Uploads" stroke={COLORS.danger} strokeWidth={2} fill="transparent" />
+      <Area type="monotone" dataKey="uploads" name="Uploads" stroke={COLORS.primary} strokeWidth={2} fill="transparent" />
     </AreaChart>
   </ResponsiveContainer>
 );

@@ -2,7 +2,6 @@ import { api, unwrap } from './api';
 import type {
   ActivityLogItem,
   AdminAnalytics,
-  AdminUserDetail,
   DocumentItem,
   DocumentListResponse,
   User,
@@ -33,11 +32,6 @@ export const adminService = {
     return data;
   },
 
-  async userDetail(id: string): Promise<AdminUserDetail> {
-    const res = await api.get(`/admin/users/${id}`);
-    return unwrap<AdminUserDetail>(res.data);
-  },
-
   async setUserRole(id: string, role: 'USER' | 'ADMIN'): Promise<User> {
     const res = await api.put(`/admin/users/${id}/role`, { role });
     return unwrap<{ user: User }>(res.data).user;
@@ -48,15 +42,7 @@ export const adminService = {
     return unwrap<{ user: User }>(res.data).user;
   },
 
-  async documents(
-    query: {
-      page?: number;
-      limit?: number;
-      search?: string;
-      status?: string;
-      userId?: string;
-    } = {}
-  ): Promise<DocumentListResponse> {
+  async documents(query: { page?: number; limit?: number; search?: string; status?: string } = {}): Promise<DocumentListResponse> {
     const res = await api.get('/admin/documents', { params: query });
     return unwrap(res.data);
   },

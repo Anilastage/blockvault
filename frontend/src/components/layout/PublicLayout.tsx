@@ -14,7 +14,7 @@ export const PublicLayout = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      <header className="sticky top-0 z-30 border-b border-slate-100 bg-white/90 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90">
+      <header className="sticky top-0 z-30 border-b border-slate-100 bg-white/90 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
           <NavLink to="/" className="flex items-center gap-2.5">
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-primary-500 to-secondary-500">
@@ -23,7 +23,7 @@ export const PublicLayout = () => {
                 <path d="M9 11.5h6M9 14.5h4" strokeLinecap="round" />
               </svg>
             </span>
-            <span className="text-lg font-bold tracking-tight text-dark dark:text-white">
+            <span className="text-lg font-bold tracking-tight text-dark">
               Block<span className="text-primary-500">Vault</span>
             </span>
           </NavLink>

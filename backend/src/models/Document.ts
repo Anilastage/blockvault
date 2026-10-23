@@ -1,21 +1,6 @@
 import mongoose, { Schema, type Document as MongoDocument, type Model } from 'mongoose';
 import type { BlockchainStatus, VerificationStatus } from '../types';
 
-export interface DocumentEncryption {
-  version: number;
-  algorithm: string;
-  iv: string;
-  wrappedKey: string;
-  keyIv: string;
-  plaintextHash: string;
-  ciphertextHash: string;
-  ciphertextSize: number;
-  shareKeyWrapped?: string;
-  shareKeyWrapIv?: string;
-  shareDekWrapped?: string;
-  shareDekIv?: string;
-}
-
 export interface IDocument extends MongoDocument {
   userId: mongoose.Types.ObjectId;
   originalName: string;
@@ -40,27 +25,7 @@ export interface IDocument extends MongoDocument {
   previousVersionHash?: string;
   folderId?: mongoose.Types.ObjectId | null;
   tags?: string[];
-  /** Present only for client-side encrypted documents. */
-  encryption?: DocumentEncryption;
 }
-
-const documentEncryptionSchema = new Schema<DocumentEncryption>(
-  {
-    version: { type: Number, default: 1 },
-    algorithm: { type: String, default: 'AES-256-GCM' },
-    iv: { type: String, required: true },
-    wrappedKey: { type: String, required: true },
-    keyIv: { type: String, required: true },
-    plaintextHash: { type: String, required: true },
-    ciphertextHash: { type: String, required: true },
-    ciphertextSize: { type: Number, required: true },
-    shareKeyWrapped: { type: String },
-    shareKeyWrapIv: { type: String },
-    shareDekWrapped: { type: String },
-    shareDekIv: { type: String },
-  },
-  { _id: false }
-);
 
 const documentSchema = new Schema<IDocument>(
   {
@@ -95,7 +60,6 @@ const documentSchema = new Schema<IDocument>(
     previousVersionHash: { type: String },
     folderId: { type: Schema.Types.ObjectId, ref: 'Folder', default: null },
     tags: { type: [String], default: [] },
-    encryption: { type: documentEncryptionSchema, default: undefined },
   },
   { timestamps: true }
 );

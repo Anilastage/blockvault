@@ -1,6 +1,6 @@
 import mongoose, { Schema, type Document as MongoDocument, type Model } from 'mongoose';
 
-export type OtpPurpose = 'mfa_login' | 'mfa_setup' | 'email_verify' | 'vault_recovery';
+export type OtpPurpose = 'mfa_login' | 'mfa_setup' | 'email_verify';
 export type OtpChannel = 'email' | 'sms';
 
 export interface IOtpCode extends MongoDocument {
@@ -20,11 +20,7 @@ const otpCodeSchema = new Schema<IOtpCode>(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     codeHash: { type: String, required: true },
-    purpose: {
-      type: String,
-      enum: ['mfa_login', 'mfa_setup', 'email_verify', 'vault_recovery'],
-      required: true,
-    },
+    purpose: { type: String, enum: ['mfa_login', 'mfa_setup', 'email_verify'], required: true },
     channel: { type: String, enum: ['email', 'sms'], required: true },
     expiresAt: { type: Date, required: true, index: { expires: 0 } },
     used: { type: Boolean, default: false },
